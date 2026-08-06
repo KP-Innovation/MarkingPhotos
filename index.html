@@ -81,7 +81,8 @@
 <section id="screen-camera" class="screen">
   <header class="bar">
     <button id="btn-cam-back" type="button" class="icon-btn" aria-label="ย้อนกลับ">‹</button>
-    <span id="cam-code" class="bar__code"></span>
+    <button id="cam-code" type="button" class="bar__code bar__code--btn"
+            title="แตะเพื่อแก้รหัส"></button>
     <button id="btn-flip" type="button" class="icon-btn" aria-label="สลับกล้อง">⟳</button>
   </header>
 
@@ -139,8 +140,11 @@
     </label>
   </div>
 
-  <div class="actions actions--row">
+  <div class="actions actions--row actions--tight">
     <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่งอัตโนมัติ</button>
+    <button id="btn-again" type="button" class="btn btn--ghost" hidden>ถ่ายต่อ</button>
+  </div>
+  <div class="actions actions--row">
     <button id="btn-save" type="button" class="btn btn--primary">บันทึกลงอัลบั้ม</button>
   </div>
   <p id="save-note" class="hint hint--pad"></p>

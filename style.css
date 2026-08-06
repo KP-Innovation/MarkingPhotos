@@ -124,6 +124,8 @@ h1 {
 .actions { display: flex; flex-direction: column; gap: 12px; }
 .actions--row { flex-direction: row; padding: 0 16px 12px; }
 .actions--row .btn { flex: 1; }
+.actions--tight { padding-bottom: 8px; }
+.actions--row .btn[hidden] { display: none; }
 
 .btn {
   display: block;
@@ -170,6 +172,16 @@ h1 {
   letter-spacing: 1px;
 }
 .bar__spacer { width: 42px; }
+
+.bar__code--btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  padding: 6px 4px;
+  text-decoration: underline dotted rgba(255, 207, 63, .6);
+  text-underline-offset: 5px;
+}
 
 .icon-btn {
   width: 42px;

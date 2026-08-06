@@ -28,7 +28,8 @@
     hardwareZoom: false,
     digitalBrightness: 1,
     hardwareExposure: false,
-    saving: false
+    saving: false,
+    source: 'live'         // รูปที่กำลังตรวจมาจากไหน: 'live' หรือ 'file'
   };
 
   /* ---------------- เก็บค่าล่าสุด ---------------- */
@@ -461,8 +462,10 @@
 
   /* ---------------- หน้าตรวจรูป ---------------- */
 
-  function openReview(photoCanvas) {
+  function openReview(photoCanvas, source) {
     state.photoCanvas = photoCanvas;
+    state.source = source;
+    $('btn-again').hidden = source !== 'live';
     var frame = $('review-frame');
     frame.style.aspectRatio = photoCanvas.width + ' / ' + photoCanvas.height;
 
@@ -584,7 +587,7 @@
       canvas.height = h;
       canvas.getContext('2d').drawImage(source, 0, 0);
       if (source.close) source.close();
-      openReview(canvas);
+      openReview(canvas, 'file');
       autoPlaceReview();
     }).catch(function () {
       toast('เปิดรูปนี้ไม่ได้');
@@ -601,6 +604,25 @@
     });
   }
 
+  /* เปิดหน้ากล้องสด ใช้ทั้งตอนเริ่มถ่ายและตอนกด "ถ่ายต่อ" */
+  function openCamera() {
+    if (!state.plateCanvas) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('เบราว์เซอร์นี้เปิดกล้องสดไม่ได้ ลองโหมดกล้องเครื่องแทน');
+      return;
+    }
+    $('cam-code').textContent = state.code;
+    showScreen('screen-camera');
+    return startCamera().then(function () {
+      if (state.placement.xRatio === 0 && state.placement.yRatio === 0) {
+        camPlacement.resetToBottom();
+      } else {
+        camPlacement.clamp(state.placement);
+        camPlacement.render();
+      }
+    });
+  }
+
   /* ---------------- ผูกปุ่มทั้งหมด ---------------- */
 
   function init() {
@@ -610,23 +632,7 @@
 
     setupCodeScreen();
 
-    $('btn-live').addEventListener('click', function () {
-      if (!state.plateCanvas) return;
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast('เบราว์เซอร์นี้เปิดกล้องสดไม่ได้ ลองโหมดกล้องเครื่องแทน');
-        return;
-      }
-      $('cam-code').textContent = state.code;
-      showScreen('screen-camera');
-      startCamera().then(function () {
-        if (state.placement.yRatio === 0 && state.placement.xRatio === 0) {
-          camPlacement.resetToBottom();
-        } else {
-          camPlacement.clamp(state.placement);
-          camPlacement.render();
-        }
-      });
-    });
+    $('btn-live').addEventListener('click', openCamera);
 
     $('btn-native').addEventListener('click', function () { $('file-native').click(); });
     $('btn-pick').addEventListener('click', function () { $('file-pick').click(); });
@@ -657,10 +663,24 @@
       var shot = captureSquare();
       if (!shot) { toast('กล้องยังไม่พร้อม ลองอีกครั้ง'); return; }
       stopCamera();
-      openReview(shot);
+      openReview(shot, 'live');
     });
 
+    // ถ่ายรูปถัดไปได้ทันทีโดยไม่ต้องย้อนกลับไปหน้ากรอกรหัส
+    $('btn-again').addEventListener('click', openCamera);
+
     $('btn-review-back').addEventListener('click', function () {
+      if (state.source === 'live') {
+        openCamera();          // มาจากกล้องสด ย้อนกลับไปที่กล้อง ไม่ใช่หน้าแรก
+      } else {
+        showScreen('screen-code');
+        refreshPreview();
+      }
+    });
+
+    // แตะรหัสบนแถบกล้องเพื่อกลับไปแก้เลขงาน
+    $('cam-code').addEventListener('click', function () {
+      stopCamera();
       showScreen('screen-code');
       refreshPreview();
     });

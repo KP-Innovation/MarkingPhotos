@@ -64,16 +64,52 @@
     return code;
   }
 
-  function padStart(value, length) {
-    var s = String(value == null ? '' : value).trim();
-    while (s.length < length) s = '0' + s;
-    return s;
+  /* เติมขีดให้เองถ้าพิมพ์ติดกันมา เช่น LP26090045 -> LP-2609-0045 */
+  function autoDash(raw) {
+    var code = normalize(raw).replace(/[\s_–—]+/g, '-');
+    if (code.indexOf('-') === -1 && /^[A-Z]{2}\d{8}$/.test(code)) {
+      return code.slice(0, 2) + '-' + code.slice(2, 6) + '-' + code.slice(6);
+    }
+    return code;
   }
 
-  /* ประกอบรหัสจากช่องย่อย เช่น ('em', '26', '7', '1') -> 'EM-2607-0001' */
-  function buildCode(prefix, year2, month2, running) {
-    return normalize(prefix) + '-' + padStart(year2, 2) + padStart(month2, 2) +
-      '-' + padStart(running, 4);
+  /*
+   * ตรวจรหัสที่พิมพ์มาทั้งก้อน แล้วบอกว่าใช้ได้ไหม/ผิดตรงไหน
+   * level 'ok'    = ตรงรูปแบบ XX-YYMM-NNNN
+   *       'warn'  = วาดป้ายได้ แต่ผิดรูปแบบมาตรฐาน (เตือน ไม่บล็อก)
+   *       'error' = วาดป้ายไม่ได้เลย (บล็อก)
+   */
+  function analyzeCode(raw) {
+    var code = autoDash(raw);
+    if (!code) return { code: '', level: 'empty', message: '' };
+
+    for (var i = 0; i < code.length; i++) {
+      if (GLYPH_CHARS.indexOf(code[i]) === -1) {
+        return {
+          code: code, level: 'error',
+          message: 'ใช้ตัวอักษร "' + code[i] + '" ไม่ได้ — ป้ายมีเฉพาะ A-Z, 0-9 และ -'
+        };
+      }
+    }
+
+    if (/^[A-Z]{2}-\d{4}-\d{4}$/.test(code)) {
+      return { code: code, level: 'ok', message: '' };
+    }
+
+    var parts = code.split('-');
+    var why;
+    if (code.indexOf('-') === -1) {
+      why = 'ไม่มีขีดคั่น ควรเป็นแบบ LP-2609-0045';
+    } else if (parts.length !== 3) {
+      why = 'ต้องมี 3 ส่วนคั่นด้วยขีด เช่น LP-2609-0045';
+    } else if (!/^[A-Z]{2}$/.test(parts[0])) {
+      why = 'อักษรนำควรเป็นตัวอักษร 2 ตัว เช่น LP';
+    } else if (!/^\d{4}$/.test(parts[1])) {
+      why = 'ส่วนกลางควรเป็นตัวเลข 4 หลัก (ปีเดือน) เช่น 2609';
+    } else {
+      why = 'ลำดับควรเป็นตัวเลข 4 หลัก เช่น 0045';
+    }
+    return { code: code, level: 'warn', message: why };
   }
 
   function roundedRectPath(ctx, w, h, r) {
@@ -162,7 +198,8 @@
     GLYPH_CHARS: GLYPH_CHARS,
     normalize: normalize,
     validateCode: validateCode,
-    buildCode: buildCode,
+    autoDash: autoDash,
+    analyzeCode: analyzeCode,
     renderPlate: renderPlate
   };
 })(window);

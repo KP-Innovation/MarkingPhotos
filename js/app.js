@@ -15,11 +15,15 @@
   var STORE_KEY = 'markingphotos.v1';
   var JPEG_QUALITY = 0.95;
 
+  /* ประเภทรูป — ต่อท้ายเลขงานเป็นชื่อไฟล์ เลือกหรือไม่เลือกก็ได้ */
+  var PHOTO_TYPES = ['Front', 'Front-Ruler', 'Rear-Ruler', 'Horizental-Side', 'Vertical-Ruler'];
+
   var state = {
     code: '',
-    freeMode: false,
+    photoType: '',
     placement: { widthRatio: window.Plate.DEFAULT_WIDTH_RATIO, xRatio: 0, yRatio: 0 },
-    plateCanvas: null,     // ป้ายความละเอียดเต็มของรหัสปัจจุบัน
+    plateCanvas: null,     // ป้ายความละเอียดเต็มของรหัสปัจจุบัน (ใช้ตอนรวมภาพ ไม่เอาลง DOM)
+    plateURL: '',          // ภาพป้ายสำหรับแสดงผล — แต่ละกล่องมี <img> ของตัวเอง
     photoCanvas: null,     // รูปดิบที่กำลังตรวจอยู่ (ยังไม่มีป้าย)
     stream: null,
     track: null,
@@ -62,92 +66,135 @@
     });
   }
 
-  /* ---------------- หน้ากรอกรหัส ---------------- */
+  /* ---------------- หน้าเลขที่งาน ---------------- */
 
-  function currentCode() {
-    if (state.freeMode) return window.Plate.normalize($('in-free').value);
-    return window.Plate.buildCode($('in-prefix').value, $('in-year').value,
-      $('in-month').value, $('in-running').value);
+  function setActionsEnabled(on) {
+    ['btn-live', 'btn-native', 'btn-pick'].forEach(function (id) { $(id).disabled = !on; });
+  }
+
+  /*
+   * ทุกที่ที่โชว์ป้ายต้องมี <img> ของตัวเอง ห้ามใช้ node เดียวกันร่วมกัน
+   * ไม่งั้นพอ resize (เช่นคีย์บอร์ดเด้งบนมือถือ) กล่องหนึ่งจะดึงป้ายไปจากอีกกล่อง
+   */
+  function plateImage(alt) {
+    var img = new Image();
+    img.alt = alt || '';
+    img.decoding = 'async';
+    img.src = state.plateURL;
+    return img;
   }
 
   var previewToken = 0;
-  function refreshPreview() {
-    var code = currentCode();
-    state.code = code;
-    var token = ++previewToken;
-    var errEl = $('code-error');
 
-    window.Plate.renderPlate(code).then(function (canvas) {
+  function refreshPreview() {
+    var info = window.Plate.analyzeCode($('in-code').value);
+    state.code = info.code;
+
+    var input = $('in-code');
+    var note = $('code-note');
+    input.classList.toggle('is-warn', info.level === 'warn');
+    input.classList.toggle('is-error', info.level === 'error');
+    note.className = 'note' +
+      (info.level === 'warn' ? ' is-warn' : info.level === 'error' ? ' is-error' : '');
+    note.textContent = info.level === 'empty' ? 'พิมพ์ได้เลย เช่น LP-2609-0045' : info.message;
+
+    // ผิดรูปแบบแค่เตือน ยังถ่ายต่อได้ — วาดป้ายไม่ได้เท่านั้นที่บล็อก
+    var usable = info.level === 'ok' || info.level === 'warn';
+    setActionsEnabled(usable);
+    updateNamePreview();
+
+    var token = ++previewToken;
+    if (!usable) {
+      state.plateCanvas = null;
+      $('plate-preview').innerHTML = '';
+      return;
+    }
+
+    window.Plate.renderPlate(info.code).then(function (canvas) {
       if (token !== previewToken) return;
       state.plateCanvas = canvas;
-      errEl.textContent = '';
+      state.plateURL = canvas.toDataURL('image/png');
       var box = $('plate-preview');
       box.innerHTML = '';
-      box.appendChild(canvas);
-      $('btn-live').disabled = false;
-      $('btn-native').disabled = false;
-      $('btn-pick').disabled = false;
+      box.appendChild(plateImage(info.code));
     }).catch(function (err) {
       if (token !== previewToken) return;
       state.plateCanvas = null;
-      errEl.textContent = err.message;
       $('plate-preview').innerHTML = '';
-      $('btn-live').disabled = true;
-      $('btn-native').disabled = true;
-      $('btn-pick').disabled = true;
-    });
-  }
-
-  function persistCode() {
-    saveStore({
-      freeMode: state.freeMode,
-      prefix: $('in-prefix').value,
-      year: $('in-year').value,
-      month: $('in-month').value,
-      running: $('in-running').value,
-      free: $('in-free').value
+      note.className = 'note is-error';
+      note.textContent = err.message;
+      setActionsEnabled(false);
     });
   }
 
   function setupCodeScreen() {
     var store = loadStore();
-    $('in-prefix').value = store.prefix || 'EM';
-    $('in-year').value = store.year || String(new Date().getFullYear()).slice(-2);
-    $('in-month').value = store.month || String(new Date().getMonth() + 1);
-    $('in-running').value = store.running || '';
-    $('in-free').value = store.free || '';
-    state.freeMode = !!store.freeMode;
-    applyMode();
-
-    ['in-prefix', 'in-year', 'in-month', 'in-running', 'in-free'].forEach(function (id) {
-      $(id).addEventListener('input', function () {
-        refreshPreview();
-        persistCode();
-      });
-    });
-
-    $('btn-toggle-mode').addEventListener('click', function () {
-      state.freeMode = !state.freeMode;
-      if (state.freeMode && !$('in-free').value) $('in-free').value = currentCodeFromParts();
-      applyMode();
-      refreshPreview();
-      persistCode();
-    });
-
+    var input = $('in-code');
+    input.value = store.code || '';
     if (store.placement) state.placement = store.placement;
+    state.photoType = store.photoType || '';
+
+    input.addEventListener('input', function () {
+      // เติมขีดให้เองเมื่อพิมพ์ติดกันมาครบ และเคอร์เซอร์อยู่ท้ายสุด
+      if (input.selectionStart === input.value.length) {
+        var dashed = window.Plate.autoDash(input.value);
+        if (dashed !== window.Plate.normalize(input.value)) input.value = dashed;
+      }
+      refreshPreview();
+      saveStore({ code: input.value });
+    });
+
+    input.addEventListener('blur', function () {
+      var dashed = window.Plate.autoDash(input.value);
+      if (dashed !== input.value) {
+        input.value = dashed;
+        refreshPreview();
+        saveStore({ code: input.value });
+      }
+    });
+
+    buildTypeChips();
     refreshPreview();
   }
 
-  function currentCodeFromParts() {
-    return window.Plate.buildCode($('in-prefix').value, $('in-year').value,
-      $('in-month').value, $('in-running').value);
+  /* ---------------- ประเภทรูป + ชื่อไฟล์ ---------------- */
+
+  function buildTypeChips() {
+    var box = $('type-chips');
+    box.innerHTML = '';
+    PHOTO_TYPES.forEach(function (name) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = name;
+      chip.addEventListener('click', function () {
+        // แตะซ้ำที่อันเดิม = ยกเลิก กลับไปไม่ระบุประเภท
+        state.photoType = (state.photoType === name) ? '' : name;
+        syncTypeChips();
+        saveStore({ photoType: state.photoType });
+      });
+      box.appendChild(chip);
+    });
+    syncTypeChips();
   }
 
-  function applyMode() {
-    $('fields-parts').classList.toggle('is-hidden', state.freeMode);
-    $('fields-free').classList.toggle('is-hidden', !state.freeMode);
-    $('btn-toggle-mode').textContent = state.freeMode
-      ? 'กลับไปกรอกทีละช่อง' : 'พิมพ์รหัสเต็มเอง';
+  function syncTypeChips() {
+    var chips = $('type-chips').children;
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle('is-on', chips[i].textContent === state.photoType);
+    }
+    updateNamePreview();
+  }
+
+  /* เลขงาน + ประเภทรูป เช่น LP-2609-0045_Front-Ruler.jpg */
+  function outputName() {
+    var base = state.code || 'plate';
+    if (state.photoType) base += '_' + state.photoType;
+    return base.replace(/[^A-Za-z0-9_-]/g, '_') + '.jpg';
+  }
+
+  function updateNamePreview() {
+    $('name-preview').textContent = outputName();
   }
 
   /* ---------------- ตัวควบคุมตำแหน่งป้าย ---------------- */
@@ -207,9 +254,13 @@
     this.layer.style.width = (p.widthRatio * size.w) + 'px';
     this.layer.style.left = (p.xRatio * size.w) + 'px';
     this.layer.style.top = (p.yRatio * size.h) + 'px';
-    if (this.layer.firstChild !== state.plateCanvas) {
+    var img = this.layer.firstElementChild;
+    if (!img || img.tagName !== 'IMG') {
       this.layer.innerHTML = '';
-      this.layer.appendChild(state.plateCanvas);
+      img = plateImage(state.code);
+      this.layer.appendChild(img);
+    } else if (img.getAttribute('src') !== state.plateURL) {
+      img.setAttribute('src', state.plateURL);
     }
     if (this.slider) this.slider.value = String(p.widthRatio);
   };
@@ -475,6 +526,7 @@
     display.getContext('2d').drawImage(photoCanvas, 0, 0);
 
     $('review-code').textContent = state.code;
+    syncTypeChips();
     showScreen('screen-review');
     requestAnimationFrame(function () {
       reviewPlacement.clamp(state.placement);
@@ -534,7 +586,7 @@
     $('btn-save').disabled = true;
 
     canvasToBlob(composeFinal()).then(function (blob) {
-      var name = (state.code || 'plate').replace(/[^A-Z0-9-]/gi, '_') + '.jpg';
+      var name = outputName();
       var file = new File([blob], name, { type: 'image/jpeg' });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -686,10 +738,6 @@
     });
     $('btn-auto').addEventListener('click', autoPlaceReview);
     $('btn-save').addEventListener('click', saveResult);
-
-    $('save-note').textContent = /iP(hone|ad|od)/.test(navigator.userAgent)
-      ? 'บน iPhone ต้องแตะ "Save Image" ในหน้าต่างแชร์อีกครั้ง เป็นข้อจำกัดของ iOS'
-      : 'ไฟล์จะไปอยู่ในอัลบั้ม/โฟลเดอร์ดาวน์โหลดของเครื่อง';
 
     // กล้องหยุดเองเมื่อสลับไปแอปอื่น กลับมาแล้วต้องเปิดใหม่
     document.addEventListener('visibilitychange', function () {

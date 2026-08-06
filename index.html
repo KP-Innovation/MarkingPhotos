@@ -3,69 +3,46 @@
 <head>
 <meta charset="utf-8">
 <title>ป้ายเลขที่งาน</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#111417">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f6f8fc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141b26" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ป้ายเลขที่งาน">
+<meta name="format-detection" content="telephone=no">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="preload" href="assets/fonts/anuphan-thai.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- ---------- หน้า 1: กรอกรหัสเลขที่งาน ---------- -->
+<!-- ---------- หน้า 1: รหัสเลขที่งาน ---------- -->
 <section id="screen-code" class="screen is-active">
   <div class="sheet">
-    <h1>ป้ายเลขที่งาน</h1>
-    <p class="lead">กรอกรหัสก่อน แล้วป้ายจะไปลอยอยู่ในกล้องให้เห็นตอนถ่าย</p>
+    <header class="head">
+      <h1>ป้ายเลขที่งาน</h1>
+      <p class="lead">พิมพ์เลขงาน แล้วป้ายจะไปลอยอยู่ในกล้องให้เห็นตอนถ่าย</p>
+    </header>
 
-    <div id="fields-parts" class="fields">
-      <label class="field field--prefix">
-        <span>อักษรนำ</span>
-        <input id="in-prefix" type="text" inputmode="text" autocapitalize="characters"
-               autocomplete="off" spellcheck="false" maxlength="4" placeholder="EM">
-      </label>
-      <label class="field">
-        <span>ปี</span>
-        <input id="in-year" type="text" inputmode="numeric" autocomplete="off"
-               maxlength="2" placeholder="26">
-      </label>
-      <label class="field">
-        <span>เดือน</span>
-        <input id="in-month" type="text" inputmode="numeric" autocomplete="off"
-               maxlength="2" placeholder="07">
-      </label>
-      <label class="field">
-        <span>ลำดับ</span>
-        <input id="in-running" type="text" inputmode="numeric" autocomplete="off"
-               maxlength="4" placeholder="0001">
-      </label>
-    </div>
+    <label class="code-field">
+      <span class="code-field__label">เลขที่งาน</span>
+      <input id="in-code" type="text" inputmode="text" autocapitalize="characters"
+             autocomplete="off" autocorrect="off" spellcheck="false"
+             maxlength="20" placeholder="LP-2609-0045">
+    </label>
+    <p id="code-note" class="note"></p>
 
-    <div id="fields-free" class="fields is-hidden">
-      <label class="field field--full">
-        <span>พิมพ์รหัสเต็ม</span>
-        <input id="in-free" type="text" autocapitalize="characters" autocomplete="off"
-               spellcheck="false" placeholder="EM-2607-0001">
-      </label>
-    </div>
-
-    <button id="btn-toggle-mode" type="button" class="linkish">พิมพ์รหัสเต็มเอง</button>
-
-    <div class="preview-wrap">
-      <div id="plate-preview" class="plate-preview"></div>
-      <p id="code-error" class="error"></p>
-    </div>
+    <div id="plate-preview" class="plate-preview"></div>
 
     <div class="actions">
       <button id="btn-live" type="button" class="btn btn--primary">
-        เปิดกล้อง — เห็นป้ายสด
-        <small>วางป้ายได้ตั้งแต่ตอนเล็ง</small>
+        เปิดกล้อง
+        <small>เห็นป้ายสด วางตำแหน่งได้ตั้งแต่ตอนเล็ง</small>
       </button>
-      <button id="btn-native" type="button" class="btn">
+      <button id="btn-native" type="button" class="btn btn--soft">
         ถ่ายด้วยกล้องเครื่อง
         <small>ภาพคมกว่า แล้วค่อยวางป้าย</small>
       </button>
@@ -78,11 +55,10 @@
 </section>
 
 <!-- ---------- หน้า 2: กล้องสด ---------- -->
-<section id="screen-camera" class="screen">
+<section id="screen-camera" class="screen screen--dark">
   <header class="bar">
     <button id="btn-cam-back" type="button" class="icon-btn" aria-label="ย้อนกลับ">‹</button>
-    <button id="cam-code" type="button" class="bar__code bar__code--btn"
-            title="แตะเพื่อแก้รหัส"></button>
+    <button id="cam-code" type="button" class="bar__code" title="แตะเพื่อแก้เลขงาน"></button>
     <button id="btn-flip" type="button" class="icon-btn" aria-label="สลับกล้อง">⟳</button>
   </header>
 
@@ -92,7 +68,7 @@
       <div id="cam-plate" class="plate-layer" hidden></div>
       <div class="frame__guide"></div>
     </div>
-    <p id="cam-error" class="error error--pad"></p>
+    <p id="cam-error" class="error"></p>
   </div>
 
   <div class="controls">
@@ -117,11 +93,11 @@
   </div>
 </section>
 
-<!-- ---------- หน้า 3: ตรวจรูป / วางป้าย ---------- -->
-<section id="screen-review" class="screen">
+<!-- ---------- หน้า 3: ตรวจรูป / ตั้งชื่อ / บันทึก ---------- -->
+<section id="screen-review" class="screen screen--dark">
   <header class="bar">
     <button id="btn-review-back" type="button" class="icon-btn" aria-label="ย้อนกลับ">‹</button>
-    <span id="review-code" class="bar__code"></span>
+    <span id="review-code" class="bar__code bar__code--plain"></span>
     <span class="bar__spacer"></span>
   </header>
 
@@ -130,7 +106,6 @@
       <canvas id="review-canvas"></canvas>
       <div id="review-plate" class="plate-layer"></div>
     </div>
-    <p id="review-hint" class="hint">ลากป้ายเพื่อย้าย · ใช้สองนิ้วหรือแถบเลื่อนเพื่อย่อ/ขยาย</p>
   </div>
 
   <div class="controls">
@@ -140,14 +115,21 @@
     </label>
   </div>
 
+  <div class="typebar">
+    <div class="typebar__head">
+      <span>ประเภทรูป</span>
+      <span id="name-preview" class="typebar__name"></span>
+    </div>
+    <div id="type-chips" class="chips"></div>
+  </div>
+
   <div class="actions actions--row actions--tight">
     <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่งอัตโนมัติ</button>
     <button id="btn-again" type="button" class="btn btn--ghost" hidden>ถ่ายต่อ</button>
   </div>
-  <div class="actions actions--row">
+  <div class="actions actions--row actions--bottom">
     <button id="btn-save" type="button" class="btn btn--primary">บันทึกลงอัลบั้ม</button>
   </div>
-  <p id="save-note" class="hint hint--pad"></p>
 </section>
 
 <div id="toast" class="toast" hidden></div>

@@ -1,0 +1,228 @@
+{
+  "letter_cap_height": 71.0,
+  "digit_cap_height": 165.0,
+  "glyphs": {
+    "A": {
+      "width": 75,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "B": {
+      "width": 69,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "C": {
+      "width": 72,
+      "height": 74,
+      "ascent_ratio": 1.0140845070422535,
+      "cap_height": 71.0
+    },
+    "D": {
+      "width": 74,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "E": {
+      "width": 71,
+      "height": 72,
+      "ascent_ratio": 1.0,
+      "cap_height": 72.0
+    },
+    "F": {
+      "width": 67,
+      "height": 72,
+      "ascent_ratio": 1.0,
+      "cap_height": 72.0
+    },
+    "G": {
+      "width": 77,
+      "height": 74,
+      "ascent_ratio": 1.0138888888888888,
+      "cap_height": 72.0
+    },
+    "H": {
+      "width": 78,
+      "height": 72,
+      "ascent_ratio": 1.0,
+      "cap_height": 72.0
+    },
+    "I": {
+      "width": 35,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "J": {
+      "width": 65,
+      "height": 72,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "K": {
+      "width": 80,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "L": {
+      "width": 63,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "M": {
+      "width": 90,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "N": {
+      "width": 71,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "O": {
+      "width": 76,
+      "height": 74,
+      "ascent_ratio": 1.028169014084507,
+      "cap_height": 71.0
+    },
+    "P": {
+      "width": 65,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "Q": {
+      "width": 72,
+      "height": 88,
+      "ascent_ratio": 1.0136054421768708,
+      "cap_height": 73.5
+    },
+    "R": {
+      "width": 78,
+      "height": 71,
+      "ascent_ratio": 0.9727891156462585,
+      "cap_height": 73.5
+    },
+    "S": {
+      "width": 63,
+      "height": 73,
+      "ascent_ratio": 0.9863945578231292,
+      "cap_height": 73.5
+    },
+    "T": {
+      "width": 72,
+      "height": 74,
+      "ascent_ratio": 1.0136054421768708,
+      "cap_height": 73.5
+    },
+    "U": {
+      "width": 73,
+      "height": 72,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "V": {
+      "width": 75,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "W": {
+      "width": 97,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "X": {
+      "width": 81,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "Y": {
+      "width": 73,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "Z": {
+      "width": 64,
+      "height": 71,
+      "ascent_ratio": 1.0,
+      "cap_height": 71.0
+    },
+    "1": {
+      "width": 79,
+      "height": 165,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "2": {
+      "width": 113,
+      "height": 162,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "3": {
+      "width": 112,
+      "height": 164,
+      "ascent_ratio": 0.9939393939393939,
+      "cap_height": 165.0
+    },
+    "4": {
+      "width": 127,
+      "height": 166,
+      "ascent_ratio": 1.006060606060606,
+      "cap_height": 165.0
+    },
+    "5": {
+      "width": 113,
+      "height": 162,
+      "ascent_ratio": 0.9818181818181818,
+      "cap_height": 165.0
+    },
+    "6": {
+      "width": 115,
+      "height": 165,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "7": {
+      "width": 112,
+      "height": 162,
+      "ascent_ratio": 0.9818181818181818,
+      "cap_height": 165.0
+    },
+    "8": {
+      "width": 115,
+      "height": 165,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "9": {
+      "width": 115,
+      "height": 165,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "0": {
+      "width": 112,
+      "height": 165,
+      "ascent_ratio": 1.0,
+      "cap_height": 165.0
+    },
+    "-": {
+      "width": 112,
+      "height": 58,
+      "ascent_ratio": 0.6157575757575757,
+      "cap_height": 165.0
+    }
+  }
+}

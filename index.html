@@ -124,7 +124,8 @@
   </div>
 
   <div class="actions actions--row actions--tight">
-    <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่งอัตโนมัติ</button>
+    <button id="btn-rotate" type="button" class="btn btn--ghost">หมุน 90°</button>
+    <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่ง</button>
     <button id="btn-again" type="button" class="btn btn--ghost" hidden>ถ่ายต่อ</button>
   </div>
   <div class="actions actions--row actions--bottom">
@@ -133,6 +134,13 @@
 </section>
 
 <div id="toast" class="toast" hidden></div>
+
+<!-- ทางออกฉุกเฉิน: ถ้าแอปพังจนไปต่อไม่ได้ ต้องกดล้างแล้วเริ่มใหม่ได้เสมอ -->
+<div id="fatal" class="fatal" hidden>
+  <p class="fatal__title">แอปมีปัญหา</p>
+  <p id="fatal-msg" class="fatal__msg"></p>
+  <button id="btn-reset" type="button" class="btn btn--primary">ล้างข้อมูลแอปแล้วเริ่มใหม่</button>
+</div>
 
 <script src="js/plate.js"></script>
 <script src="js/autoplace.js"></script>

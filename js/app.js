@@ -24,7 +24,8 @@
     placement: { widthRatio: window.Plate.DEFAULT_WIDTH_RATIO, xRatio: 0, yRatio: 0 },
     plateCanvas: null,     // ป้ายความละเอียดเต็มของรหัสปัจจุบัน (ใช้ตอนรวมภาพ ไม่เอาลง DOM)
     plateURL: '',          // ภาพป้ายสำหรับแสดงผล — แต่ละกล่องมี <img> ของตัวเอง
-    photoCanvas: null,     // รูปดิบที่กำลังตรวจอยู่ (ยังไม่มีป้าย)
+    photoSource: null,     // รูปดิบที่กำลังตรวจอยู่ (ImageBitmap หรือ canvas) — เก็บก้อนเดียว
+    rotation: 0,           // 0/90/180/270 องศา สำหรับรูปที่มาเอียง
     stream: null,
     track: null,
     facing: 'environment',
@@ -50,6 +51,39 @@
   }
 
   /* ---------------- ข้อความแจ้งเตือน ---------------- */
+
+  /*
+   * ต้องมีทางออกให้ผู้ใช้เสมอเมื่อมีอะไรพัง
+   * ไม่งั้นแอปที่ติดตั้งบนหน้าโฮมจะเปิดไม่ขึ้นแล้วผู้ใช้แก้เองไม่ได้เลย
+   */
+  function showFatal(message) {
+    var bar = document.getElementById('fatal');
+    if (!bar) return;
+    document.getElementById('fatal-msg').textContent =
+      String((message && message.message) || message || 'ไม่ทราบสาเหตุ');
+    bar.hidden = false;
+  }
+
+  function hardReset() {
+    var jobs = [];
+    try { localStorage.removeItem(STORE_KEY); } catch (err) { /* ไม่เป็นไร */ }
+    if (window.caches) {
+      jobs.push(caches.keys().then(function (keys) {
+        return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+      }).catch(function () {}));
+    }
+    if (navigator.serviceWorker) {
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+        return Promise.all(regs.map(function (r) { return r.unregister(); }));
+      }).catch(function () {}));
+    }
+    Promise.all(jobs).then(function () {
+      location.replace(location.pathname + '?fresh=' + Date.now());
+    });
+  }
+
+  window.addEventListener('error', function (e) { showFatal(e.message); });
+  window.addEventListener('unhandledrejection', function (e) { showFatal(e.reason); });
 
   var toastTimer = null;
   function toast(message, ms) {
@@ -513,18 +547,74 @@
 
   /* ---------------- หน้าตรวจรูป ---------------- */
 
-  function openReview(photoCanvas, source) {
-    state.photoCanvas = photoCanvas;
-    state.source = source;
-    $('btn-again').hidden = source !== 'live';
-    var frame = $('review-frame');
-    frame.style.aspectRatio = photoCanvas.width + ' / ' + photoCanvas.height;
+  /*
+   * ขนาดรูปในเครื่อง Safari บนมือถือมีเพดานหน่วยความจำ canvas
+   * รูป 12 ล้านพิกเซลกินราว 48MB ต่อ canvas หนึ่งใบ ถ้าเปิดพร้อมกันหลายใบ
+   * (ตัวรูป + ตัวแสดงผล + ตัวรวมภาพ) iOS จะฆ่าหน้าเว็บทิ้ง แล้วเปิดใหม่ไม่ขึ้น
+   * จึงต้องคุมทั้งขนาดที่แสดงผลและขนาดไฟล์ที่บันทึก และเก็บรูปดิบไว้ก้อนเดียว
+   */
+  var MAX_OUTPUT_SIDE = 3000;   // ด้านยาวสุดของไฟล์ที่บันทึก
+  var MAX_PREVIEW_SIDE = 1400;  // ด้านยาวสุดของภาพที่โชว์บนหน้าจอ
 
+  /* ขนาดรูปหลังหมุนแล้ว */
+  function sourceSize() {
+    var s = state.photoSource;
+    if (!s) return { w: 0, h: 0 };
+    var w = s.width || s.naturalWidth || 0;
+    var h = s.height || s.naturalHeight || 0;
+    var turned = (state.rotation === 90 || state.rotation === 270);
+    return { w: turned ? h : w, h: turned ? w : h };
+  }
+
+  function fitted(size, maxSide) {
+    var k = Math.min(1, maxSide / Math.max(size.w, size.h, 1));
+    return { w: Math.max(1, Math.round(size.w * k)), h: Math.max(1, Math.round(size.h * k)) };
+  }
+
+  /* วาดรูปดิบลง ctx โดยหมุนตามที่ผู้ใช้สั่ง ให้เต็มพื้นที่ outW x outH พอดี */
+  function drawPhotoInto(ctx, outW, outH) {
+    var rot = state.rotation;
+    var turned = (rot === 90 || rot === 270);
+    var dw = turned ? outH : outW;
+    var dh = turned ? outW : outH;
+    ctx.save();
+    if (rot === 90) { ctx.translate(outW, 0); ctx.rotate(Math.PI / 2); }
+    else if (rot === 180) { ctx.translate(outW, outH); ctx.rotate(Math.PI); }
+    else if (rot === 270) { ctx.translate(0, outH); ctx.rotate(-Math.PI / 2); }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(state.photoSource, 0, 0, dw, dh);
+    ctx.restore();
+  }
+
+  /* คืนหน่วยความจำของรูปเก่า ไม่งั้นถ่ายไปเรื่อย ๆ แล้วแอปจะโดนระบบฆ่า */
+  function releasePhoto(keep) {
+    var old = state.photoSource;
+    if (old && old !== keep) {
+      if (typeof old.close === 'function') old.close();
+      else if (old.tagName === 'CANVAS') { old.width = 0; old.height = 0; }
+    }
+    if (!keep) state.photoSource = null;
+  }
+
+  function renderReview() {
+    var view = fitted(sourceSize(), MAX_PREVIEW_SIDE);
+    if (!view.w) return;
     var display = $('review-canvas');
-    display.width = photoCanvas.width;
-    display.height = photoCanvas.height;
-    display.getContext('2d').drawImage(photoCanvas, 0, 0);
+    display.width = view.w;
+    display.height = view.h;
+    drawPhotoInto(display.getContext('2d'), view.w, view.h);
+    $('review-frame').style.aspectRatio = view.w + ' / ' + view.h;
+  }
 
+  function openReview(source, mode) {
+    releasePhoto(source);
+    state.photoSource = source;
+    state.rotation = 0;
+    state.source = mode;
+    $('btn-again').hidden = mode !== 'live';
+
+    renderReview();
     $('review-code').textContent = state.code;
     syncTypeChips();
     showScreen('screen-review');
@@ -534,12 +624,24 @@
     });
   }
 
+  /* หมุนรูปทีละ 90 องศา สำหรับรูปจากอัลบั้มที่มาผิดทิศ */
+  function rotatePhoto() {
+    if (!state.photoSource) return;
+    state.rotation = (state.rotation + 90) % 360;
+    renderReview();
+    requestAnimationFrame(function () {
+      reviewPlacement.clamp(state.placement);
+      reviewPlacement.render();
+    });
+  }
+
   function autoPlaceReview() {
-    if (!state.photoCanvas || !state.plateCanvas) return;
-    var pw = state.photoCanvas.width, ph = state.photoCanvas.height;
+    var display = $('review-canvas');
+    if (!state.photoSource || !state.plateCanvas || !display.width) return;
+    var pw = display.width, ph = display.height;
     var plateW = Math.max(32, Math.round(state.placement.widthRatio * pw));
     var plateH = Math.max(1, Math.round(plateW * state.plateCanvas.height / state.plateCanvas.width));
-    var pos = window.AutoPlace.autoPosition(state.photoCanvas, pw, ph, plateW, plateH);
+    var pos = window.AutoPlace.autoPosition(display, pw, ph, plateW, plateH);
     state.placement.xRatio = pos.x / pw;
     state.placement.yRatio = pos.y / ph;
     reviewPlacement.clamp(state.placement);
@@ -547,24 +649,23 @@
     saveStore({ placement: state.placement });
   }
 
-  /* รวมรูป + ป้าย เป็นภาพเดียวที่ความละเอียดเต็มของรูป */
+  /* รวมรูป + ป้าย เป็นภาพเดียว สร้าง canvas ชั่วคราวใบเดียวตอนบันทึกเท่านั้น */
   function composeFinal() {
-    var photo = state.photoCanvas;
+    var out = fitted(sourceSize(), MAX_OUTPUT_SIDE);
     var plate = state.plateCanvas;
-    var out = document.createElement('canvas');
-    out.width = photo.width;
-    out.height = photo.height;
-    var ctx = out.getContext('2d');
-    ctx.drawImage(photo, 0, 0);
+    var canvas = document.createElement('canvas');
+    canvas.width = out.w;
+    canvas.height = out.h;
+    var ctx = canvas.getContext('2d');
+    drawPhotoInto(ctx, out.w, out.h);
 
     var p = state.placement;
-    var w = Math.max(1, Math.round(p.widthRatio * photo.width));
+    var w = Math.max(1, Math.round(p.widthRatio * out.w));
     var h = Math.max(1, Math.round(w * plate.height / plate.width));
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(plate, Math.round(p.xRatio * photo.width),
-      Math.round(p.yRatio * photo.height), w, h);
-    return out;
+    ctx.drawImage(plate, Math.round(p.xRatio * out.w), Math.round(p.yRatio * out.h), w, h);
+    return canvas;
   }
 
   function canvasToBlob(canvas) {
@@ -585,7 +686,10 @@
     state.saving = true;
     $('btn-save').disabled = true;
 
-    canvasToBlob(composeFinal()).then(function (blob) {
+    var work = composeFinal();
+    canvasToBlob(work).then(function (blob) {
+      work.width = 0;          // คืนหน่วยความจำทันทีที่ได้ไฟล์แล้ว
+      work.height = 0;
       var name = outputName();
       var file = new File([blob], name, { type: 'image/jpeg' });
 
@@ -631,15 +735,9 @@
     } else {
       work = loadViaImgTag(file);
     }
+    // เก็บรูปดิบไว้ตรง ๆ ไม่ก็อปลง canvas อีกใบ (ประหยัดหน่วยความจำครึ่งหนึ่ง)
     work.then(function (source) {
-      var w = source.width || source.naturalWidth;
-      var h = source.height || source.naturalHeight;
-      var canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(source, 0, 0);
-      if (source.close) source.close();
-      openReview(canvas, 'file');
+      openReview(source, 'file');
       autoPlaceReview();
     }).catch(function () {
       toast('เปิดรูปนี้ไม่ได้');
@@ -719,9 +817,15 @@
     });
 
     // ถ่ายรูปถัดไปได้ทันทีโดยไม่ต้องย้อนกลับไปหน้ากรอกรหัส
-    $('btn-again').addEventListener('click', openCamera);
+    $('btn-again').addEventListener('click', function () {
+      releasePhoto();
+      openCamera();
+    });
+
+    $('btn-rotate').addEventListener('click', rotatePhoto);
 
     $('btn-review-back').addEventListener('click', function () {
+      releasePhoto();
       if (state.source === 'live') {
         openCamera();          // มาจากกล้องสด ย้อนกลับไปที่กล้อง ไม่ใช่หน้าแรก
       } else {
@@ -738,6 +842,7 @@
     });
     $('btn-auto').addEventListener('click', autoPlaceReview);
     $('btn-save').addEventListener('click', saveResult);
+    $('btn-reset').addEventListener('click', hardReset);
 
     // กล้องหยุดเองเมื่อสลับไปแอปอื่น กลับมาแล้วต้องเปิดใหม่
     document.addEventListener('visibilitychange', function () {

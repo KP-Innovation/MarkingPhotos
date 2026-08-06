@@ -415,3 +415,27 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   text-align: center;
 }
 .toast[hidden] { display: none; }
+
+/* ---------- แถบแจ้งเมื่อแอปพัง ---------- */
+.fatal {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + var(--safe-bottom));
+  z-index: 100;
+  background: var(--surface);
+  border: 1.5px solid var(--danger);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+}
+.fatal[hidden] { display: none; }
+.fatal__title { margin: 0 0 4px; font-weight: 700; color: var(--danger); }
+.fatal__msg {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  word-break: break-word;
+  max-height: 5.5em;
+  overflow: auto;
+}

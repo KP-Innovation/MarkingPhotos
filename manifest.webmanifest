@@ -3,7 +3,7 @@
   "short_name": "ป้ายเลขงาน",
   "description": "ถ่ายรูปตัวอย่างทดสอบพร้อมป้ายเลขที่งานในภาพเดียว",
   "lang": "th",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

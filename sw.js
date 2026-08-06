@@ -1,5 +1,5 @@
 /* แคชไฟล์แอปไว้ใช้ตอนสัญญาณไม่ดี — เปลี่ยน CACHE เมื่อแก้ไฟล์ใด ๆ */
-var CACHE = 'markingphotos-v6';
+var CACHE = 'markingphotos-v7';
 
 var GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
   .map(function (c) { return 'assets/glyphs/' + c + '.png'; })

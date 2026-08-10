@@ -368,6 +368,9 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 .slider { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #9fb0c4; }
 .slider > span { width: 76px; flex: none; }
 .slider input { flex: 1; accent-color: var(--orange-hot); height: 26px; min-width: 0; }
+/* แถวชิปเลือกสัดส่วน ใช้โครงเดียวกับแถวสไลเดอร์เพื่อให้ป้ายกำกับตรงแนวกัน */
+.slider .chips { flex: 1; min-width: 0; padding-bottom: 0; }
+.slider .chips .chip { padding: 6px 13px; font-size: 13px; }
 
 /* ---------- ประเภทรูป ---------- */
 .typebar { padding: 8px 16px 2px; flex: none; }

@@ -24,6 +24,17 @@
    * สไลเดอร์ในโหมดนี้คุม "ความสูงแถบเทียบกับความสูงภาพ" ไม่ใช่ความกว้างป้ายเทียบความกว้างภาพ
    * เพราะถ้าอิงความกว้าง รูปแนวนอนจะได้แถบหนากว่ารูปแนวตั้งเกือบเท่าตัวทั้งที่เลื่อนเท่ากัน
    */
+  /*
+   * สัดส่วนกรอบที่เลือกได้ เก็บเป็น "ด้านยาว:ด้านสั้น" แล้วค่อยพลิกตามแนวของภาพเอง
+   * รูปนอนได้ 4:3 รูปตั้งได้ 3:4 — หมุนเครื่องแล้วพื้นที่ภาพเท่าเดิม ไม่มีการบีบ
+   */
+  var ASPECTS = [
+    { id: 'full', label: 'เต็มภาพ', long: 0, short: 0 },
+    { id: '1:1', label: '1:1', long: 1, short: 1 },
+    { id: '4:3', label: '4:3', long: 4, short: 3 },
+    { id: '16:9', label: '16:9', long: 16, short: 9 }
+  ];
+
   var BAND_FILL = 0.62;          // ป้ายสูงกี่ส่วนของแถบ ที่เหลือเป็นขอบบน-ล่างเท่า ๆ กัน
   var BAND_MIN = 0.06;
   var BAND_MAX = 0.28;
@@ -33,6 +44,7 @@
   var state = {
     code: '',
     photoType: '',
+    aspect: '4:3',         // สัดส่วนกรอบภาพ ดู ASPECTS
     plateMode: 'band',     // 'band' = ป้ายใต้ภาพ, 'inside' = ป้ายทับอยู่ในภาพ (แบบโปรแกรมพีซี)
     bandHeight: 0.12,      // ความสูงแถบเทียบความสูงภาพ (แยกจาก placement.widthRatio ของโหมดทับภาพ)
     placement: { widthRatio: window.Plate.DEFAULT_WIDTH_RATIO, xRatio: 0, yRatio: 0 },
@@ -180,6 +192,9 @@
     var input = $('in-code');
     input.value = store.code || '';
     if (store.placement) state.placement = store.placement;
+    if (store.aspect && ASPECTS.some(function (a) { return a.id === store.aspect; })) {
+      state.aspect = store.aspect;
+    }
     if (store.plateMode === 'inside' || store.plateMode === 'band') state.plateMode = store.plateMode;
     if (typeof store.bandHeight === 'number') state.bandHeight = store.bandHeight;
     state.photoType = store.photoType || '';
@@ -245,6 +260,34 @@
 
   function updateNamePreview() {
     $('name-preview').textContent = outputName();
+  }
+
+  /* ---------------- สัดส่วนกรอบภาพ ---------------- */
+
+  function aspectDef() {
+    for (var i = 0; i < ASPECTS.length; i++) {
+      if (ASPECTS[i].id === state.aspect) return ASPECTS[i];
+    }
+    return ASPECTS[0];
+  }
+
+  /*
+   * กรอบตัดกลางภาพตามสัดส่วนที่เลือก — "ตัด" อย่างเดียว ไม่มีการยืดหรือบีบ
+   * สัดส่วนพลิกตามแนวของภาพเอง ภาพตั้งกับภาพนอนจึงกินพื้นที่เซนเซอร์เท่ากัน
+   */
+  function cropOf(w, h) {
+    var a = aspectDef();
+    if (!a.long || !w || !h) return { x: 0, y: 0, w: w, h: h };
+    var r = (w >= h) ? (a.long / a.short) : (a.short / a.long);
+    var cw = Math.round(Math.min(w, h * r));
+    var ch = Math.round(Math.min(h, cw / r));
+    return { x: Math.round((w - cw) / 2), y: Math.round((h - ch) / 2), w: cw, h: ch };
+  }
+
+  /* กรอบตัดของรูปที่กำลังตรวจอยู่ (คิดหลังหมุนแล้ว) */
+  function cropRect() {
+    var s = sourceSize();
+    return cropOf(s.w, s.h);
   }
 
   /* ---------------- โหมดป้ายใต้ภาพ ---------------- */
@@ -482,6 +525,47 @@
   var camPlacement = null;
   var reviewPlacement = null;
 
+  /* ---------------- เลือกสัดส่วนภาพ ---------------- */
+
+  function buildAspectChips(id) {
+    var box = $(id);
+    box.innerHTML = '';
+    ASPECTS.forEach(function (a) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = a.label;
+      chip.setAttribute('data-aspect', a.id);
+      chip.addEventListener('click', function () { setAspect(a.id); });
+      box.appendChild(chip);
+    });
+  }
+
+  function syncAspectChips() {
+    ['cam-aspect', 'review-aspect'].forEach(function (id) {
+      var chips = $(id).children;
+      for (var i = 0; i < chips.length; i++) {
+        chips[i].classList.toggle('is-on', chips[i].getAttribute('data-aspect') === state.aspect);
+      }
+    });
+  }
+
+  /*
+   * เปลี่ยนสัดส่วนได้ทั้งตอนเล็งและตอนตรวจรูป
+   * ตอนตรวจรูปคือการตัดรูปที่ถ่ายมาแล้ว จึงตัดได้แคบลงอย่างเดียว ขยายคืนไม่ได้
+   */
+  function setAspect(id) {
+    state.aspect = id;
+    saveStore({ aspect: id });
+    syncAspectChips();
+    if (camPlacement) camPlacement.render();
+    if (state.photoSource) {
+      renderReview();
+      reviewPlacement.clamp(state.placement);
+      reviewPlacement.render();
+    }
+  }
+
   /* ---------------- สลับโหมดป้าย ---------------- */
 
   function setPlateMode(mode) {
@@ -712,9 +796,15 @@
     ctx.putImageData(img, 0, 0);
   }
 
+  /* พื้นที่ภาพที่กล้องกำลังให้อยู่ หลังตัดตามสัดส่วนที่เลือกแล้ว */
+  function cameraCrop() {
+    var video = $('video');
+    return cropOf(video.videoWidth, video.videoHeight);
+  }
+
   /*
-   * เก็บภาพเต็มเฟรมตามที่กล้องเห็น ไม่ครอปสัดส่วนทิ้ง
-   * ครอปเฉพาะตอนซูมดิจิทัล และครอปเข้ากลางโดยรักษาสัดส่วนเดิมไว้ ตรงกับที่เห็นในพรีวิว
+   * เก็บภาพตามกรอบที่เห็นในพรีวิวเป๊ะ ๆ — ตัดตามสัดส่วนที่เลือก แล้วตัดเพิ่มถ้าซูมดิจิทัล
+   * ทั้งสองขั้นเป็นการ "ตัด" ล้วน ๆ ไม่มีการยืดบีบ
    * ย่อลงไม่เกิน MAX_OUTPUT_SIDE ตั้งแต่ตอนถ่าย เพราะยังไงตอนบันทึกก็ไม่ได้ใหญ่กว่านี้
    * และ canvas 12 ล้านพิกเซลคือต้นเหตุที่ iOS เคยฆ่าหน้าเว็บทิ้ง
    */
@@ -723,10 +813,11 @@
     var vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
 
+    var crop = cameraCrop();
     var zoom = Math.max(1, state.digitalZoom);
-    var cw = vw / zoom, ch = vh / zoom;
-    var sx = (vw - cw) / 2;
-    var sy = (vh - ch) / 2;
+    var cw = crop.w / zoom, ch = crop.h / zoom;
+    var sx = crop.x + (crop.w - cw) / 2;
+    var sy = crop.y + (crop.h - ch) / 2;
     var out = fitted({ w: cw, h: ch }, MAX_OUTPUT_SIDE);
 
     var canvas = document.createElement('canvas');
@@ -771,19 +862,28 @@
     return { w: Math.max(1, Math.round(size.w * k)), h: Math.max(1, Math.round(size.h * k)) };
   }
 
-  /* วาดรูปดิบลง ctx โดยหมุนตามที่ผู้ใช้สั่ง ให้เต็มพื้นที่ outW x outH พอดี */
+  /*
+   * วาดรูปดิบลง ctx: หมุนตามที่ผู้ใช้สั่ง แล้วตัดตามกรอบสัดส่วนที่เลือก
+   * ใช้ scale ตัวเดียวกันทั้งแกน x และ y จึงไม่มีทางบีบภาพไม่ว่ากรณีใด
+   */
   function drawPhotoInto(ctx, outW, outH) {
-    var rot = state.rotation;
-    var turned = (rot === 90 || rot === 270);
-    var dw = turned ? outH : outW;
-    var dh = turned ? outW : outH;
+    var full = sourceSize();          // ขนาดรูปหลังหมุน (ยังไม่ตัด)
+    var crop = cropRect();            // กรอบตัด ในพิกัดเดียวกัน
+    if (!full.w || !crop.w) return;
+    var scale = outW / crop.w;
+
     ctx.save();
-    if (rot === 90) { ctx.translate(outW, 0); ctx.rotate(Math.PI / 2); }
-    else if (rot === 180) { ctx.translate(outW, outH); ctx.rotate(Math.PI); }
-    else if (rot === 270) { ctx.translate(0, outH); ctx.rotate(-Math.PI / 2); }
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(state.photoSource, 0, 0, dw, dh);
+    ctx.translate(-crop.x * scale, -crop.y * scale);   // เลื่อนให้กรอบตัดมาอยู่มุมซ้ายบน
+
+    var rot = state.rotation;
+    var turned = (rot === 90 || rot === 270);
+    var fw = full.w * scale, fh = full.h * scale;
+    if (rot === 90) { ctx.translate(fw, 0); ctx.rotate(Math.PI / 2); }
+    else if (rot === 180) { ctx.translate(fw, fh); ctx.rotate(Math.PI); }
+    else if (rot === 270) { ctx.translate(0, fh); ctx.rotate(-Math.PI / 2); }
+    ctx.drawImage(state.photoSource, 0, 0, turned ? fh : fw, turned ? fw : fh);
     ctx.restore();
   }
 
@@ -798,7 +898,7 @@
   }
 
   function renderReview() {
-    var view = fitted(sourceSize(), MAX_PREVIEW_SIDE);
+    var view = fitted(cropRect(), MAX_PREVIEW_SIDE);
     if (!view.w) return;
     var display = $('review-canvas');
     display.width = view.w;
@@ -852,7 +952,7 @@
 
   /* รวมรูป + ป้าย เป็นภาพเดียว สร้าง canvas ชั่วคราวใบเดียวตอนบันทึกเท่านั้น */
   function composeFinal() {
-    var out = fitted(sourceSize(), MAX_OUTPUT_SIDE);
+    var out = fitted(cropRect(), MAX_OUTPUT_SIDE);
     var plate = state.plateCanvas;
     var L = shotLayout(out.w, out.h);
 
@@ -992,18 +1092,18 @@
   function init() {
     camPlacement = new PlacementController(
       $('cam-plate'), $('cam-frame'), $('sl-size'), $('cam-shot'), $('cam-band'),
-      function () {
-        var v = $('video');
-        return { w: v.videoWidth, h: v.videoHeight };
-      });
+      cameraCrop);
     reviewPlacement = new PlacementController(
       $('review-plate'), $('review-frame'), $('sl-review-size'), $('review-shot'), $('review-band'),
-      sourceSize);
+      cropRect);
 
     setupCodeScreen();
     bindModeSeg('cam-mode');
     bindModeSeg('review-mode');
     syncModeUI();
+    buildAspectChips('cam-aspect');
+    buildAspectChips('review-aspect');
+    syncAspectChips();
 
     // ขนาดภาพจากกล้องรู้ได้หลัง metadata มาถึง และเปลี่ยนอีกทีเมื่อหมุนเครื่อง
     ['loadedmetadata', 'resize'].forEach(function (ev) {

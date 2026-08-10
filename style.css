@@ -303,12 +303,38 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 .band img { display: block; height: auto; border-radius: 3px; }
 .band[hidden] { display: none; }   /* คลาส .band ทับ [hidden] ของเบราว์เซอร์ ต้องสั่งเอง */
 
-.frame__guide {
+/*
+ * กริด 9 ช่อง (กฎสามส่วน) ไว้เล็งให้ภาพตรง
+ * ใช้กล่องซ้อนสองใบที่กินพื้นที่หนึ่งในสามตรงกลาง แล้วโชว์เฉพาะขอบ
+ * ได้เส้นตั้ง 2 + เส้นนอน 2 พอดี ไม่มีเส้นเกินที่ริมกรอบเหมือนวิธี background repeat
+ */
+.frame__grid {
   position: absolute;
-  inset: 11%;
-  border: 1px solid rgba(255, 255, 255, .2);
-  border-radius: 8px;
+  inset: 0;
   pointer-events: none;
+}
+.frame__grid::before,
+.frame__grid::after {
+  content: "";
+  position: absolute;
+  /* เงาดำจาง ๆ ให้เส้นขาวยังเห็นได้บนฉากสว่าง */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .55));
+}
+.frame__grid::before {
+  top: 0;
+  bottom: 0;
+  left: 33.3333%;
+  right: 33.3333%;
+  border-left: 1px solid rgba(255, 255, 255, .45);
+  border-right: 1px solid rgba(255, 255, 255, .45);
+}
+.frame__grid::after {
+  left: 0;
+  right: 0;
+  top: 33.3333%;
+  bottom: 33.3333%;
+  border-top: 1px solid rgba(255, 255, 255, .45);
+  border-bottom: 1px solid rgba(255, 255, 255, .45);
 }
 
 .plate-layer {

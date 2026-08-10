@@ -16,7 +16,7 @@
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20260810f';
+  var BUILD = '20260810g';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;
@@ -40,6 +40,12 @@
     { id: '4:3', label: '4:3', long: 4, short: 3 },
     { id: '16:9', label: '16:9', long: 16, short: 9 }
   ];
+
+  /*
+   * กล้องของแอปเล็งเป็นจัตุรัสอย่างเดียว งานที่ใช้จริงเป็น 1:1 หมด ไม่ต้องมีให้เลือกให้ยุ่ง
+   * ส่วนหน้าตรวจรูปยังเลือกได้ครบ เพราะต้องรองรับรูปจากกล้องเครื่องและจากแกลเลอรีด้วย
+   */
+  var CAM_ASPECT = '1:1';
 
   var CROP_MAX_ZOOM = 6;         // ซูมกรอบตัดเข้าได้สูงสุดกี่เท่า
 
@@ -300,9 +306,10 @@
 
   /* ---------------- สัดส่วนกรอบภาพ ---------------- */
 
-  function aspectDef() {
+  function aspectDef(id) {
+    var want = id || state.aspect;
     for (var i = 0; i < ASPECTS.length; i++) {
-      if (ASPECTS[i].id === state.aspect) return ASPECTS[i];
+      if (ASPECTS[i].id === want) return ASPECTS[i];
     }
     return ASPECTS[0];
   }
@@ -311,8 +318,8 @@
    * กรอบตัดกลางภาพตามสัดส่วนที่เลือก — "ตัด" อย่างเดียว ไม่มีการยืดหรือบีบ
    * สัดส่วนพลิกตามแนวของภาพเอง ภาพตั้งกับภาพนอนจึงกินพื้นที่เซนเซอร์เท่ากัน
    */
-  function cropOf(w, h) {
-    var a = aspectDef();
+  function cropOf(w, h, aspectId) {
+    var a = aspectDef(aspectId);
     if (!a.long || !w || !h) return { x: 0, y: 0, w: w, h: h };
     var r = (w >= h) ? (a.long / a.short) : (a.short / a.long);
     var cw = Math.round(Math.min(w, h * r));
@@ -689,23 +696,20 @@
   }
 
   function syncAspectChips() {
-    ['cam-aspect', 'review-aspect'].forEach(function (id) {
-      var chips = $(id).children;
-      for (var i = 0; i < chips.length; i++) {
-        chips[i].classList.toggle('is-on', chips[i].getAttribute('data-aspect') === state.aspect);
-      }
-    });
+    var chips = $('review-aspect').children;
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle('is-on', chips[i].getAttribute('data-aspect') === state.aspect);
+    }
   }
 
   /*
-   * เปลี่ยนสัดส่วนได้ทั้งตอนเล็งและตอนตรวจรูป
-   * ตอนตรวจรูปคือการตัดรูปที่ถ่ายมาแล้ว จึงตัดได้แคบลงอย่างเดียว ขยายคืนไม่ได้
+   * เปลี่ยนสัดส่วนของรูปที่ถ่ายมาแล้ว จึงตัดได้แคบลงอย่างเดียว ขยายคืนไม่ได้
+   * (กล้องของแอปล็อก 1:1 ไว้ ไม่มีให้เลือกตรงนั้น)
    */
   function setAspect(id) {
     state.aspect = id;
     saveStore({ aspect: id });
     syncAspectChips();
-    if (camPlacement) camPlacement.render();
     if (state.photoSource) {
       clampCrop();          // สัดส่วนใหม่อาจทำให้กรอบเดิมล้นออกนอกรูป
       renderReview();
@@ -944,10 +948,10 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  /* พื้นที่ภาพที่กล้องกำลังให้อยู่ หลังตัดตามสัดส่วนที่เลือกแล้ว */
+  /* พื้นที่ที่กรอบเล็งครอบอยู่ — กล้องของแอปเป็นจัตุรัสตายตัว */
   function cameraCrop() {
     var video = $('video');
-    return cropOf(video.videoWidth, video.videoHeight);
+    return cropOf(video.videoWidth, video.videoHeight, CAM_ASPECT);
   }
 
   /*
@@ -1260,7 +1264,6 @@
     bindModeSeg('cam-mode');
     bindModeSeg('review-mode');
     syncModeUI();
-    buildAspectChips('cam-aspect');
     buildAspectChips('review-aspect');
     syncAspectChips();
 
@@ -1303,6 +1306,10 @@
       var shot = captureFrame();
       if (!shot) { toast('กล้องยังไม่พร้อม ลองอีกครั้ง'); return; }
       stopCamera();
+      // กล้องเล็งเป็นจัตุรัส หน้าตรวจรูปจึงต้องเริ่มที่จัตุรัสด้วย จะได้ตรงกับที่เห็นตอนเล็ง
+      state.aspect = CAM_ASPECT;
+      saveStore({ aspect: CAM_ASPECT });
+      syncAspectChips();
       openReview(shot, 'live');
     });
 

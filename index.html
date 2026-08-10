@@ -16,7 +16,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preload" href="assets/fonts/anuphan-thai.woff2" as="font" type="font/woff2" crossorigin>
 <!-- ?v= ต้องตรงกับ BUILD ใน sw.js เสมอ ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างโค้ดเก่า -->
-<link rel="stylesheet" href="style.css?v=20260810f">
+<link rel="stylesheet" href="style.css?v=20260810g">
 <script>
 /*
  * ตัวกู้โค้ดค้าง — ต้องอยู่ในไฟล์นี้เท่านั้น ห้ามย้ายไป app.js
@@ -29,7 +29,7 @@
  * ถ้าโค้ดที่โหลดมาเป็นคนละรุ่นกับหน้านี้ ให้ล้างแคชแล้วโหลดใหม่ให้เอง หนึ่งครั้งต่อหนึ่งรอบเปิด
  */
 (function () {
-  var BUILD = '20260810f';
+  var BUILD = '20260810g';
   window.__BUILD = BUILD;
 
   window.addEventListener('load', function () {
@@ -116,7 +116,7 @@
       <div id="cam-frame" class="frame">
         <video id="video" playsinline autoplay muted></video>
         <div id="cam-plate" class="plate-layer" hidden></div>
-        <div class="frame__guide"></div>
+        <div class="frame__grid" aria-hidden="true"></div>
       </div>
       <div id="cam-band" class="band" hidden></div>
     </div>
@@ -125,10 +125,6 @@
   </div>
 
   <div class="controls">
-    <div class="slider">
-      <span>สัดส่วนภาพ</span>
-      <div id="cam-aspect" class="chips"></div>
-    </div>
     <div id="cam-mode" class="seg" role="group" aria-label="ตำแหน่งป้าย">
       <button type="button" class="seg__btn" data-mode="band">ป้ายใต้ภาพ</button>
       <button type="button" class="seg__btn" data-mode="inside">ป้ายในภาพ</button>
@@ -216,8 +212,8 @@
   <button id="btn-reset" type="button" class="btn btn--primary">ล้างข้อมูลแอปแล้วเริ่มใหม่</button>
 </div>
 
-<script src="js/plate.js?v=20260810f"></script>
-<script src="js/autoplace.js?v=20260810f"></script>
-<script src="js/app.js?v=20260810f"></script>
+<script src="js/plate.js?v=20260810g"></script>
+<script src="js/autoplace.js?v=20260810g"></script>
+<script src="js/app.js?v=20260810g"></script>
 </body>
 </html>

@@ -16,7 +16,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preload" href="assets/fonts/anuphan-thai.woff2" as="font" type="font/woff2" crossorigin>
 <!-- ?v= ต้องตรงกับ BUILD ใน sw.js เสมอ ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างโค้ดเก่า -->
-<link rel="stylesheet" href="style.css?v=20260810e">
+<link rel="stylesheet" href="style.css?v=20260810f">
 <script>
 /*
  * ตัวกู้โค้ดค้าง — ต้องอยู่ในไฟล์นี้เท่านั้น ห้ามย้ายไป app.js
@@ -29,7 +29,7 @@
  * ถ้าโค้ดที่โหลดมาเป็นคนละรุ่นกับหน้านี้ ให้ล้างแคชแล้วโหลดใหม่ให้เอง หนึ่งครั้งต่อหนึ่งรอบเปิด
  */
 (function () {
-  var BUILD = '20260810e';
+  var BUILD = '20260810f';
   window.__BUILD = BUILD;
 
   window.addEventListener('load', function () {
@@ -170,6 +170,7 @@
       </div>
       <div id="review-band" class="band" hidden></div>
     </div>
+    <p class="hint">ลากรูปเพื่อเลื่อนกรอบ · หยิกสองนิ้วเพื่อซูม</p>
   </div>
 
   <div class="controls">
@@ -197,6 +198,7 @@
 
   <div class="actions actions--row actions--tight">
     <button id="btn-rotate" type="button" class="btn btn--ghost">หมุน 90°</button>
+    <button id="btn-crop-reset" type="button" class="btn btn--ghost">กรอบกลาง</button>
     <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่ง</button>
     <button id="btn-again" type="button" class="btn btn--ghost" hidden>ถ่ายต่อ</button>
   </div>
@@ -214,8 +216,8 @@
   <button id="btn-reset" type="button" class="btn btn--primary">ล้างข้อมูลแอปแล้วเริ่มใหม่</button>
 </div>
 
-<script src="js/plate.js?v=20260810e"></script>
-<script src="js/autoplace.js?v=20260810e"></script>
-<script src="js/app.js?v=20260810e"></script>
+<script src="js/plate.js?v=20260810f"></script>
+<script src="js/autoplace.js?v=20260810f"></script>
+<script src="js/app.js?v=20260810f"></script>
 </body>
 </html>

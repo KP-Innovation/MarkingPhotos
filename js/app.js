@@ -16,7 +16,7 @@
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20260810e';
+  var BUILD = '20260810f';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;
@@ -41,6 +41,8 @@
     { id: '16:9', label: '16:9', long: 16, short: 9 }
   ];
 
+  var CROP_MAX_ZOOM = 6;         // ซูมกรอบตัดเข้าได้สูงสุดกี่เท่า
+
   var BAND_FILL = 0.62;          // ป้ายสูงกี่ส่วนของแถบ ที่เหลือเป็นขอบบน-ล่างเท่า ๆ กัน
   var BAND_MIN = 0.06;
   var BAND_MAX = 0.28;
@@ -51,6 +53,7 @@
     code: '',
     photoType: '',
     aspect: '4:3',         // สัดส่วนกรอบภาพ ดู ASPECTS
+    crop: { scale: 1, cx: 0.5, cy: 0.5 },   // กรอบตัด: ระดับซูม + จุดกึ่งกลาง (สัดส่วน 0-1 ของรูป)
     plateMode: 'band',     // 'band' = ป้ายใต้ภาพ, 'inside' = ป้ายทับอยู่ในภาพ (แบบโปรแกรมพีซี)
     bandHeight: 0.12,      // ความสูงแถบเทียบความสูงภาพ (แยกจาก placement.widthRatio ของโหมดทับภาพ)
     placement: { widthRatio: window.Plate.DEFAULT_WIDTH_RATIO, xRatio: 0, yRatio: 0 },
@@ -317,11 +320,119 @@
     return { x: Math.round((w - cw) / 2), y: Math.round((h - ch) / 2), w: cw, h: ch };
   }
 
-  /* กรอบตัดของรูปที่กำลังตรวจอยู่ (คิดหลังหมุนแล้ว) */
+  /*
+   * กรอบตัดของรูปที่กำลังตรวจอยู่ (คิดหลังหมุนแล้ว)
+   *
+   * state.crop เก็บเป็น "จุดกึ่งกลางกรอบ + ระดับซูม" เทียบสัดส่วนของรูป
+   * จึงไม่ผูกกับขนาดพิกเซล เปลี่ยนสัดส่วนหรือหมุนรูปแล้วยังอ้างอิงจุดเดิมได้
+   * scale = 1 คือกรอบใหญ่สุดเท่าที่สัดส่วนนี้จะกินได้ ซูมเข้าได้อย่างเดียว ขยายเกินรูปไม่ได้
+   */
   function cropRect() {
     var s = sourceSize();
-    return cropOf(s.w, s.h);
+    if (!s.w || !s.h) return { x: 0, y: 0, w: 0, h: 0 };
+    var base = cropOf(s.w, s.h);
+    var w = base.w / state.crop.scale;
+    var h = base.h / state.crop.scale;
+    return {
+      x: Math.round(state.crop.cx * s.w - w / 2),
+      y: Math.round(state.crop.cy * s.h - h / 2),
+      w: Math.max(1, Math.round(w)),
+      h: Math.max(1, Math.round(h))
+    };
   }
+
+  /* กันกรอบหลุดออกนอกรูป — บีบที่จุดกึ่งกลาง ไม่ใช่ที่ผลลัพธ์ ตำแหน่งจะได้ไม่ไหลทีละนิด */
+  function clampCrop() {
+    var s = sourceSize();
+    if (!s.w || !s.h) return;
+    state.crop.scale = Math.max(1, Math.min(CROP_MAX_ZOOM, state.crop.scale));
+    var base = cropOf(s.w, s.h);
+    var hx = (base.w / state.crop.scale / 2) / s.w;
+    var hy = (base.h / state.crop.scale / 2) / s.h;
+    state.crop.cx = Math.max(hx, Math.min(1 - hx, state.crop.cx));
+    state.crop.cy = Math.max(hy, Math.min(1 - hy, state.crop.cy));
+  }
+
+  function resetCrop() {
+    state.crop = { scale: 1, cx: 0.5, cy: 0.5 };
+  }
+
+  /* วาดใหม่แค่เฟรมละครั้งระหว่างลาก ไม่งั้นรูปใหญ่ ๆ จะหน่วง */
+  var cropRenderReq = 0;
+  function scheduleCropRender() {
+    if (cropRenderReq) return;
+    cropRenderReq = requestAnimationFrame(function () {
+      cropRenderReq = 0;
+      renderReview();
+      reviewPlacement.clamp(state.placement);
+      reviewPlacement.render();
+    });
+  }
+
+  /*
+   * ลากรูปเพื่อเลื่อนกรอบ หยิกสองนิ้วเพื่อซูม — เหมือนตอนครอปรูปในแอปทั่วไป
+   * ผูกไว้กับพื้นที่ภาพ ส่วนป้าย (โหมดทับภาพ) มีตัวลากของตัวเองที่กันเหตุการณ์ไม่ให้ทะลุลงมา
+   */
+  function CropController(frameEl) {
+    this.frame = frameEl;
+    this.pointers = new Map();
+    this.drag = null;
+    this.pinch = null;
+    var self = this;
+    ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(function (ev) {
+      frameEl.addEventListener(ev, function (e) { self.handle(ev, e); });
+    });
+  }
+
+  CropController.prototype.handle = function (type, e) {
+    if (!state.photoSource) return;
+    if (type === 'pointerdown') {
+      // บางเบราว์เซอร์โยน error ถ้าจับ pointer ไม่ได้ ห้ามให้ทั้งท่าลากพังตาม
+      try { this.frame.setPointerCapture(e.pointerId); } catch (err) { /* ลากต่อได้อยู่ */ }
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size === 1) {
+        this.drag = { x: e.clientX, y: e.clientY, cx: state.crop.cx, cy: state.crop.cy };
+      } else if (this.pointers.size === 2) {
+        this.pinch = { dist: this.distance(), scale: state.crop.scale };
+        this.drag = null;
+      }
+      e.preventDefault();
+      return;
+    }
+    if (type === 'pointermove') {
+      if (!this.pointers.has(e.pointerId)) return;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size >= 2 && this.pinch) {
+        var d = this.distance();
+        if (this.pinch.dist > 0 && d > 0) {
+          state.crop.scale = this.pinch.scale * (d / this.pinch.dist);
+          clampCrop();
+          scheduleCropRender();
+        }
+      } else if (this.drag) {
+        var s = sourceSize();
+        var c = cropRect();
+        var box = this.frame.getBoundingClientRect();
+        if (!box.width || !box.height || !s.w) return;
+        // ลากรูปไปทางขวา = อยากเห็นของที่อยู่ทางซ้าย กรอบจึงเลื่อนสวนทางนิ้ว
+        state.crop.cx = this.drag.cx - (e.clientX - this.drag.x) * (c.w / box.width) / s.w;
+        state.crop.cy = this.drag.cy - (e.clientY - this.drag.y) * (c.h / box.height) / s.h;
+        clampCrop();
+        scheduleCropRender();
+      }
+      e.preventDefault();
+      return;
+    }
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
+    if (this.pointers.size === 0) this.drag = null;
+  };
+
+  CropController.prototype.distance = function () {
+    var pts = Array.from(this.pointers.values());
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  };
 
   /* ---------------- โหมดป้ายใต้ภาพ ---------------- */
 
@@ -490,7 +601,9 @@
 
   PlacementController.prototype.onDown = function (e) {
     if (state.plateMode === 'band') return;
-    this.layer.setPointerCapture(e.pointerId);
+    // กันไม่ให้การลากป้ายทะลุลงไปเลื่อนกรอบตัดของรูปด้วย
+    e.stopPropagation();
+    try { this.layer.setPointerCapture(e.pointerId); } catch (err) { /* ลากต่อได้อยู่ */ }
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     this.layer.classList.add('is-dragging');
     if (this.pointers.size === 1) {
@@ -515,6 +628,7 @@
 
   PlacementController.prototype.onMove = function (e) {
     if (!this.pointers.has(e.pointerId)) return;
+    e.stopPropagation();
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this.pointers.size >= 2 && this.pinchStart) {
@@ -593,6 +707,7 @@
     syncAspectChips();
     if (camPlacement) camPlacement.render();
     if (state.photoSource) {
+      clampCrop();          // สัดส่วนใหม่อาจทำให้กรอบเดิมล้นออกนอกรูป
       renderReview();
       reviewPlacement.clamp(state.placement);
       reviewPlacement.render();
@@ -836,8 +951,13 @@
   }
 
   /*
-   * เก็บภาพตามกรอบที่เห็นในพรีวิวเป๊ะ ๆ — ตัดตามสัดส่วนที่เลือก แล้วตัดเพิ่มถ้าซูมดิจิทัล
-   * ทั้งสองขั้นเป็นการ "ตัด" ล้วน ๆ ไม่มีการยืดบีบ
+   * เก็บภาพ "เต็มเฟรม" ไว้ก่อนเสมอ ตัดเฉพาะส่วนที่ซูมดิจิทัลเข้าไปจริง ๆ
+   *
+   * ไม่ตัดตามสัดส่วนตั้งแต่ตอนถ่าย เพราะถ้าตัดทิ้งเลยจะเลื่อนกรอบทีหลังไม่ได้
+   * ต้องถ่ายให้ตรงเป๊ะครั้งเดียวจบซึ่งใช้งานจริงลำบาก
+   * หน้าตรวจรูปจะตัดตามสัดส่วนให้เอง โดยเริ่มที่กลางภาพ = ตรงกับที่เห็นในกรอบเล็งพอดี
+   * แล้วผู้ใช้ค่อยลากเลื่อน/ซูมเลือกส่วนที่ต้องการได้ตามใจ
+   *
    * ย่อลงไม่เกิน MAX_OUTPUT_SIDE ตั้งแต่ตอนถ่าย เพราะยังไงตอนบันทึกก็ไม่ได้ใหญ่กว่านี้
    * และ canvas 12 ล้านพิกเซลคือต้นเหตุที่ iOS เคยฆ่าหน้าเว็บทิ้ง
    */
@@ -846,11 +966,10 @@
     var vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
 
-    var crop = cameraCrop();
     var zoom = Math.max(1, state.digitalZoom);
-    var cw = crop.w / zoom, ch = crop.h / zoom;
-    var sx = crop.x + (crop.w - cw) / 2;
-    var sy = crop.y + (crop.h - ch) / 2;
+    var cw = vw / zoom, ch = vh / zoom;
+    var sx = (vw - cw) / 2;
+    var sy = (vh - ch) / 2;
     var out = fitted({ w: cw, h: ch }, MAX_OUTPUT_SIDE);
 
     var canvas = document.createElement('canvas');
@@ -944,6 +1063,7 @@
     releasePhoto(source);
     state.photoSource = source;
     state.rotation = 0;
+    resetCrop();          // รูปใหม่เริ่มที่กลางภาพเสมอ = ตรงกับกรอบที่เห็นตอนเล็ง
     state.source = mode;
     $('btn-again').hidden = mode !== 'live';
 
@@ -961,6 +1081,12 @@
   function rotatePhoto() {
     if (!state.photoSource) return;
     state.rotation = (state.rotation + 90) % 360;
+    // หมุนจุดกึ่งกลางกรอบตามไปด้วย ผู้ใช้จะได้ไม่เสียส่วนที่อุตส่าห์เลื่อนไว้
+    var c = state.crop;
+    var cx = 1 - c.cy;
+    c.cy = c.cx;
+    c.cx = cx;
+    clampCrop();
     renderReview();
     requestAnimationFrame(function () {
       reviewPlacement.clamp(state.placement);
@@ -1187,6 +1313,12 @@
     });
 
     $('btn-rotate').addEventListener('click', rotatePhoto);
+    new CropController($('review-frame'));
+    $('btn-crop-reset').addEventListener('click', function () {
+      if (!state.photoSource) return;
+      resetCrop();
+      scheduleCropRender();
+    });
 
     $('btn-review-back').addEventListener('click', function () {
       releasePhoto();

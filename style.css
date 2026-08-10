@@ -265,22 +265,43 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   padding: 0 4px;
 }
 
-.frame {
+/*
+ * .shot = สิ่งที่จะได้เป็นไฟล์จริง = พื้นที่ภาพ + แถบป้ายใต้ภาพ (ถ้าเปิดโหมดแถบ)
+ * ขนาดคำนวณจาก JS เป็น px เพราะต้องพอดีทั้งกว้างและสูงของเวที
+ * (aspect-ratio ของ CSS ทำ "contain" สองแกนพร้อมกันไม่ได้)
+ */
+.shot {
   position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  max-width: 100%;
-  max-height: 100%;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-radius: 14px;
   background: #000;
+  margin: 0 auto;
+}
+
+/* พื้นที่ภาพล้วน — สัดส่วนตามภาพจริงเสมอ ไม่ครอปเพิ่ม */
+.frame {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   touch-action: none;
 }
-.frame--fit { height: 100%; width: auto; margin: 0 auto; }
 
 .frame video,
 .frame canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
-.frame--fit canvas { object-fit: fill; }
+
+/* แถบป้ายใต้ภาพ — พื้นเข้มเพื่อให้ป้ายขาวอ่านออกและดูเป็นแถบตั้งใจ */
+.band {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #12161c;
+}
+.band img { display: block; height: auto; border-radius: 3px; }
+.band[hidden] { display: none; }   /* คลาส .band ทับ [hidden] ของเบราว์เซอร์ ต้องสั่งเอง */
 
 .frame__guide {
   position: absolute;
@@ -313,6 +334,33 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   border: 1.5px dashed rgba(255, 176, 131, .85);
   border-radius: 8px;
   pointer-events: none;
+}
+
+/* ---------- ปุ่มสลับโหมดป้าย ---------- */
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--dark-line);
+  background: var(--dark-surface);
+  border-radius: 999px;
+}
+.seg__btn {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: #9fb0c4;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.seg__btn.is-on {
+  background: var(--orange);
+  color: #23150a;
+  font-weight: 600;
 }
 
 /* ---------- แถบเลื่อน ---------- */
@@ -399,6 +447,18 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   font-size: 13px;
   text-align: center;
 }
+.error:empty { display: none; }
+
+/* บอกว่ากล้องส่งภาพมาสัดส่วนอะไรจริง ๆ — ไว้เช็กว่าไม่โดนครอปเป็น 16:9 */
+.hint {
+  margin: 0;
+  padding: 0 20px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #6f8095;
+  text-align: center;
+}
+.hint:empty { display: none; }
 
 .toast {
   position: fixed;

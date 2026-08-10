@@ -63,17 +63,25 @@
   </header>
 
   <div class="stage">
-    <div id="cam-frame" class="frame">
-      <video id="video" playsinline autoplay muted></video>
-      <div id="cam-plate" class="plate-layer" hidden></div>
-      <div class="frame__guide"></div>
+    <div id="cam-shot" class="shot">
+      <div id="cam-frame" class="frame">
+        <video id="video" playsinline autoplay muted></video>
+        <div id="cam-plate" class="plate-layer" hidden></div>
+        <div class="frame__guide"></div>
+      </div>
+      <div id="cam-band" class="band" hidden></div>
     </div>
     <p id="cam-error" class="error"></p>
+    <p id="cam-format" class="hint"></p>
   </div>
 
   <div class="controls">
+    <div id="cam-mode" class="seg" role="group" aria-label="ตำแหน่งป้าย">
+      <button type="button" class="seg__btn" data-mode="band">ป้ายใต้ภาพ</button>
+      <button type="button" class="seg__btn" data-mode="inside">ป้ายในภาพ</button>
+    </div>
     <label class="slider">
-      <span>ขนาดป้าย</span>
+      <span id="lb-size">ขนาดป้าย</span>
       <input id="sl-size" type="range" min="0.15" max="0.95" step="0.01" value="0.55">
     </label>
     <label class="slider">
@@ -102,15 +110,22 @@
   </header>
 
   <div class="stage">
-    <div id="review-frame" class="frame frame--fit">
-      <canvas id="review-canvas"></canvas>
-      <div id="review-plate" class="plate-layer"></div>
+    <div id="review-shot" class="shot">
+      <div id="review-frame" class="frame">
+        <canvas id="review-canvas"></canvas>
+        <div id="review-plate" class="plate-layer"></div>
+      </div>
+      <div id="review-band" class="band" hidden></div>
     </div>
   </div>
 
   <div class="controls">
+    <div id="review-mode" class="seg" role="group" aria-label="ตำแหน่งป้าย">
+      <button type="button" class="seg__btn" data-mode="band">ป้ายใต้ภาพ</button>
+      <button type="button" class="seg__btn" data-mode="inside">ป้ายในภาพ</button>
+    </div>
     <label class="slider">
-      <span>ขนาดป้าย</span>
+      <span id="lb-review-size">ขนาดป้าย</span>
       <input id="sl-review-size" type="range" min="0.15" max="0.95" step="0.01" value="0.55">
     </label>
   </div>

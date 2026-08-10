@@ -18,9 +18,23 @@
   /* ประเภทรูป — ต่อท้ายเลขงานเป็นชื่อไฟล์ เลือกหรือไม่เลือกก็ได้ */
   var PHOTO_TYPES = ['Front', 'Front-Ruler', 'Rear-Ruler', 'Horizental-Side', 'Vertical-Ruler'];
 
+  /*
+   * โหมดแถบ: ต่อแถบใต้ภาพแล้ววางป้ายในแถบ ภาพจึงไม่ถูกป้ายบังและไม่ต้องครอปทิ้ง
+   *
+   * สไลเดอร์ในโหมดนี้คุม "ความสูงแถบเทียบกับความสูงภาพ" ไม่ใช่ความกว้างป้ายเทียบความกว้างภาพ
+   * เพราะถ้าอิงความกว้าง รูปแนวนอนจะได้แถบหนากว่ารูปแนวตั้งเกือบเท่าตัวทั้งที่เลื่อนเท่ากัน
+   */
+  var BAND_FILL = 0.62;          // ป้ายสูงกี่ส่วนของแถบ ที่เหลือเป็นขอบบน-ล่างเท่า ๆ กัน
+  var BAND_MIN = 0.06;
+  var BAND_MAX = 0.28;
+  var BAND_PLATE_MAX_W = 0.92;   // ป้ายกว้างได้ไม่เกินนี้เทียบความกว้างภาพ
+  var BAND_BG = '#12161c';
+
   var state = {
     code: '',
     photoType: '',
+    plateMode: 'band',     // 'band' = ป้ายใต้ภาพ, 'inside' = ป้ายทับอยู่ในภาพ (แบบโปรแกรมพีซี)
+    bandHeight: 0.12,      // ความสูงแถบเทียบความสูงภาพ (แยกจาก placement.widthRatio ของโหมดทับภาพ)
     placement: { widthRatio: window.Plate.DEFAULT_WIDTH_RATIO, xRatio: 0, yRatio: 0 },
     plateCanvas: null,     // ป้ายความละเอียดเต็มของรหัสปัจจุบัน (ใช้ตอนรวมภาพ ไม่เอาลง DOM)
     plateURL: '',          // ภาพป้ายสำหรับแสดงผล — แต่ละกล่องมี <img> ของตัวเอง
@@ -166,6 +180,8 @@
     var input = $('in-code');
     input.value = store.code || '';
     if (store.placement) state.placement = store.placement;
+    if (store.plateMode === 'inside' || store.plateMode === 'band') state.plateMode = store.plateMode;
+    if (typeof store.bandHeight === 'number') state.bandHeight = store.bandHeight;
     state.photoType = store.photoType || '';
 
     input.addEventListener('input', function () {
@@ -231,16 +247,79 @@
     $('name-preview').textContent = outputName();
   }
 
+  /* ---------------- โหมดป้ายใต้ภาพ ---------------- */
+
+  /* ค่าที่สไลเดอร์กำลังคุมอยู่ — คนละความหมายกันในสองโหมด */
+  function sliderValue() {
+    return state.plateMode === 'band' ? state.bandHeight : state.placement.widthRatio;
+  }
+
+  /*
+   * คำนวณกล่องผลลัพธ์จากขนาดภาพ: ภาพอยู่บน แถบป้ายต่อล่าง
+   * ใช้ทั้งตอนพรีวิว (หน่วย px บนจอ) และตอนรวมภาพจริง (หน่วยพิกเซลของไฟล์)
+   * โหมด 'inside' คืนขนาดเท่าภาพเดิม ไม่มีแถบ
+   */
+  function shotLayout(imgW, imgH) {
+    var plain = { w: imgW, h: imgH, band: 0, plateW: 0, plateH: 0 };
+    if (state.plateMode !== 'band' || !state.plateCanvas || !imgW || !imgH) return plain;
+
+    var aspect = state.plateCanvas.width / state.plateCanvas.height;
+    var plateH = state.bandHeight * BAND_FILL * imgH;
+    var plateW = plateH * aspect;
+    if (plateW > BAND_PLATE_MAX_W * imgW) {          // รหัสยาว ๆ บนรูปแคบ ต้องหดลงมาให้พอดี
+      plateW = BAND_PLATE_MAX_W * imgW;
+      plateH = plateW / aspect;
+    }
+    plateW = Math.max(1, Math.round(plateW));
+    plateH = Math.max(1, Math.round(plateH));
+    var band = Math.max(1, Math.round(plateH / BAND_FILL));
+    return { w: imgW, h: imgH + band, band: band, plateW: plateW, plateH: plateH };
+  }
+
+  /*
+   * จัดขนาดกล่อง .shot ให้พอดีเวทีทั้งกว้างและสูง
+   * ต้องคิดเป็น px เอง เพราะ aspect-ratio ของ CSS ทำ "contain" สองแกนพร้อมกันไม่ได้
+   */
+  function applyShot(shotEl, bandEl, imgW, imgH) {
+    var L = shotLayout(imgW, imgH);
+    if (!L.w || !L.h) return L;
+
+    var stage = shotEl.parentElement;
+    var availW = Math.max(1, stage.clientWidth - 8);      // เผื่อ padding ของเวที
+    var availH = Math.max(1, stage.clientHeight - 8);
+    var w = Math.min(availW, availH * (L.w / L.h));
+    shotEl.style.width = Math.round(w) + 'px';
+    shotEl.style.height = Math.round(w * L.h / L.w) + 'px';
+
+    bandEl.hidden = !L.band;
+    if (L.band) {
+      bandEl.style.height = (L.band / L.h * 100) + '%';
+      var img = bandEl.firstElementChild;
+      if (!img || img.tagName !== 'IMG') {
+        bandEl.innerHTML = '';
+        img = plateImage(state.code);
+        bandEl.appendChild(img);
+      } else if (img.getAttribute('src') !== state.plateURL) {
+        img.setAttribute('src', state.plateURL);
+      }
+      img.style.width = (L.plateW / L.w * 100) + '%';
+    }
+    return L;
+  }
+
   /* ---------------- ตัวควบคุมตำแหน่งป้าย ---------------- */
 
   /*
    * ผูกป้ายเข้ากับกรอบรูปหนึ่งกรอบ ให้ลากย้าย/หยิกย่อขยายได้
    * ตำแหน่งเก็บเป็นสัดส่วนของรูป (0-1) จึงใช้ได้ทั้งตอนพรีวิวและตอนบันทึกจริง
    */
-  function PlacementController(layerEl, frameEl, sliderEl) {
+  function PlacementController(layerEl, frameEl, sliderEl, shotEl, bandEl, imageSize) {
     this.layer = layerEl;
     this.frame = frameEl;
     this.slider = sliderEl;
+    this.shot = shotEl;
+    this.band = bandEl;
+    this.imageSize = imageSize;   // ขนาดภาพจริงหน่วยพิกเซล คืน {w,h}
     this.pointers = new Map();
     this.pinchStart = null;
     this.dragStart = null;
@@ -280,8 +359,21 @@
     return p;
   };
 
+  /* จัดขนาดกล่องภาพ+แถบให้ตรงกับภาพที่กำลังแสดง เรียกได้บ่อยเท่าที่ต้องการ */
+  PlacementController.prototype.layout = function () {
+    var s = this.imageSize();
+    if (!s.w || !s.h) return;
+    applyShot(this.shot, this.band, s.w, s.h);
+  };
+
   PlacementController.prototype.render = function () {
     if (!state.plateCanvas) return;
+    this.layout();
+    if (state.plateMode === 'band') {
+      this.layer.hidden = true;                        // ป้ายอยู่ในแถบ ไม่ต้องมีตัวลากทับภาพ
+      if (this.slider) this.slider.value = String(state.bandHeight);
+      return;
+    }
     var size = this.frameSize();
     var p = state.placement;
     this.layer.hidden = false;
@@ -301,6 +393,13 @@
 
   /* เปลี่ยนขนาดโดยยึดจุดกึ่งกลางป้ายไว้ที่เดิม (เหมือนล้อเมาส์ในโปรแกรมพีซี) */
   PlacementController.prototype.setWidthRatio = function (next) {
+    if (state.plateMode === 'band') {
+      // ในแถบป้ายอยู่กลางเสมอ เลื่อนแล้วแถบหนา/บางตาม ไม่มีเรื่องตำแหน่งให้คิด
+      state.bandHeight = Math.max(BAND_MIN, Math.min(BAND_MAX, next));
+      this.render();
+      saveStore({ bandHeight: state.bandHeight });
+      return;
+    }
     next = Math.max(0.15, Math.min(0.95, next));
     var p = state.placement;
     var oldH = this.heightRatio(p.widthRatio);
@@ -314,6 +413,7 @@
   };
 
   PlacementController.prototype.onDown = function (e) {
+    if (state.plateMode === 'band') return;
     this.layer.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     this.layer.classList.add('is-dragging');
@@ -369,6 +469,7 @@
 
   /* วางป้ายกลางล่างของรูป เว้นขอบ 3% เหมือนค่าเริ่มต้นของโปรแกรมพีซี */
   PlacementController.prototype.resetToBottom = function () {
+    if (state.plateMode === 'band') return;
     var p = state.placement;
     var hr = this.heightRatio(p.widthRatio);
     p.xRatio = (1 - p.widthRatio) / 2;
@@ -381,6 +482,47 @@
   var camPlacement = null;
   var reviewPlacement = null;
 
+  /* ---------------- สลับโหมดป้าย ---------------- */
+
+  function setPlateMode(mode) {
+    if (mode !== 'band' && mode !== 'inside') return;
+    state.plateMode = mode;
+    saveStore({ plateMode: mode });
+    syncModeUI();
+    if (camPlacement) camPlacement.render();
+    if (reviewPlacement) reviewPlacement.render();
+  }
+
+  function syncModeUI() {
+    ['cam-mode', 'review-mode'].forEach(function (id) {
+      var btns = $(id).children;
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('is-on', btns[i].getAttribute('data-mode') === state.plateMode);
+      }
+    });
+    // ปุ่มจัดตำแหน่งไม่มีความหมายในโหมดแถบ ป้ายอยู่กลางแถบตายตัว
+    var band = state.plateMode === 'band';
+    $('btn-reset-plate').hidden = band;
+    $('btn-auto').hidden = band;
+
+    // สไลเดอร์ตัวเดียวกันแต่คุมคนละอย่าง จึงต้องเปลี่ยนทั้งช่วงค่าและป้ายกำกับ
+    [['sl-size', 'lb-size'], ['sl-review-size', 'lb-review-size']].forEach(function (pair) {
+      var sl = $(pair[0]);
+      sl.min = band ? BAND_MIN : 0.15;
+      sl.max = band ? BAND_MAX : 0.95;
+      sl.step = band ? 0.005 : 0.01;
+      sl.value = String(sliderValue());
+      $(pair[1]).textContent = band ? 'ความสูงแถบ' : 'ขนาดป้าย';
+    });
+  }
+
+  function bindModeSeg(id) {
+    $(id).addEventListener('click', function (e) {
+      var btn = e.target.closest('.seg__btn');
+      if (btn) setPlateMode(btn.getAttribute('data-mode'));
+    });
+  }
+
   /* ---------------- กล้องสด ---------------- */
 
   function stopCamera() {
@@ -392,18 +534,45 @@
     $('video').srcObject = null;
   }
 
-  function startCamera() {
-    stopCamera();
-    $('cam-error').textContent = '';
-    var constraints = {
+  /*
+   * ขอภาพ 4:3 ตามเซนเซอร์ ไม่ใช่ 16:9
+   *
+   * เดิมขอ 3840x2160 (16:9) ทั้งที่กล้องมือถือเป็น 4:3 เบราว์เซอร์เลยครอปบน-ล่างทิ้ง 25%
+   * แล้วโค้ดยังครอปเป็นจัตุรัสซ้ำอีกชั้น เหลือแนวนอนแค่ ~56% ของที่กล้องเห็นจริง
+   * ผลคือภาพเหมือนถูกซูมค้างไว้เกือบสองเท่า ต้องถอยห่างกว่าใช้แอปกล้องของเครื่อง
+   *
+   * resizeMode 'none' = ห้ามเบราว์เซอร์ครอป/ย่อให้ ขอโหมดดิบของกล้องมาเลย (Chrome รองรับ)
+   * ใช้ ideal ทุกตัวเพื่อไม่ให้ OverconstrainedError บนเครื่องที่ไม่มีโหมดนั้น
+   */
+  function cameraConstraints() {
+    return {
       audio: false,
       video: {
         facingMode: { ideal: state.facing },
-        width: { ideal: 3840 },
-        height: { ideal: 2160 }
+        width: { ideal: 4032 },
+        height: { ideal: 3024 },
+        resizeMode: { ideal: 'none' }
       }
     };
-    return navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+  }
+
+  function startCamera() {
+    stopCamera();
+    $('cam-error').textContent = '';
+    $('cam-format').textContent = '';
+
+    var open = navigator.mediaDevices.getUserMedia(cameraConstraints())
+      .catch(function (err) {
+        // เครื่องที่ไม่มีโหมดตามที่ขอ ให้เปิดแบบไม่ระบุอะไรเลยดีกว่าเปิดไม่ได้
+        if (err && (err.name === 'OverconstrainedError' || err.name === 'NotReadableError')) {
+          return navigator.mediaDevices.getUserMedia({
+            audio: false, video: { facingMode: { ideal: state.facing } }
+          });
+        }
+        throw err;
+      });
+
+    return open.then(function (stream) {
       state.stream = stream;
       state.track = stream.getVideoTracks()[0];
       var video = $('video');
@@ -411,6 +580,7 @@
       return video.play().catch(function () { /* บางเบราว์เซอร์เล่นเองอยู่แล้ว */ });
     }).then(function () {
       setupCapabilities();
+      syncCameraFormat();
       camPlacement.render();
     }).catch(function (err) {
       var msg = 'เปิดกล้องไม่ได้: ' + (err && err.name === 'NotAllowedError'
@@ -418,6 +588,28 @@
         : (err && err.message) || 'ไม่ทราบสาเหตุ');
       $('cam-error').textContent = msg;
     });
+  }
+
+  /* หาชื่อสัดส่วนที่คนอ่านรู้เรื่อง จากขนาดจริงที่กล้องส่งมา */
+  function ratioName(w, h) {
+    var r = Math.max(w, h) / Math.min(w, h);
+    var known = [[4 / 3, '4:3'], [16 / 9, '16:9'], [3 / 2, '3:2'], [1, '1:1'], [5 / 4, '5:4']];
+    for (var i = 0; i < known.length; i++) {
+      if (Math.abs(r - known[i][0]) < 0.03) return known[i][1];
+    }
+    return r.toFixed(2) + ':1';
+  }
+
+  /*
+   * โชว์ขนาด/สัดส่วนที่ได้จริง เพราะแต่ละรุ่นให้ไม่เหมือนกัน
+   * ถ้าขึ้น 16:9 แปลว่าเครื่องนั้นไม่มีโหมด 4:3 ให้เว็บใช้ — จะได้รู้ทันทีว่ามุมมองหายไปเพราะอะไร
+   */
+  function syncCameraFormat() {
+    var video = $('video');
+    var w = video.videoWidth, h = video.videoHeight;
+    var el = $('cam-format');
+    if (!w || !h) { el.textContent = ''; return; }
+    el.textContent = w + '×' + h + '  (' + ratioName(w, h) + ')';
   }
 
   /*
@@ -520,27 +712,35 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  /* ตัดภาพจากกล้องเป็นสี่เหลี่ยมจัตุรัสกลางจอ ตามที่เห็นในกรอบพรีวิว */
-  function captureSquare() {
+  /*
+   * เก็บภาพเต็มเฟรมตามที่กล้องเห็น ไม่ครอปสัดส่วนทิ้ง
+   * ครอปเฉพาะตอนซูมดิจิทัล และครอปเข้ากลางโดยรักษาสัดส่วนเดิมไว้ ตรงกับที่เห็นในพรีวิว
+   * ย่อลงไม่เกิน MAX_OUTPUT_SIDE ตั้งแต่ตอนถ่าย เพราะยังไงตอนบันทึกก็ไม่ได้ใหญ่กว่านี้
+   * และ canvas 12 ล้านพิกเซลคือต้นเหตุที่ iOS เคยฆ่าหน้าเว็บทิ้ง
+   */
+  function captureFrame() {
     var video = $('video');
     var vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
 
-    var side = Math.min(vw, vh) / state.digitalZoom;
-    var sx = (vw - side) / 2;
-    var sy = (vh - side) / 2;
-    var size = Math.round(side);
+    var zoom = Math.max(1, state.digitalZoom);
+    var cw = vw / zoom, ch = vh / zoom;
+    var sx = (vw - cw) / 2;
+    var sy = (vh - ch) / 2;
+    var out = fitted({ w: cw, h: ch }, MAX_OUTPUT_SIDE);
 
     var canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = out.w;
+    canvas.height = out.h;
     var ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     var needBrighten = Math.abs(state.digitalBrightness - 1) > 0.001;
     var canFilter = 'filter' in ctx;
     if (needBrighten && canFilter) ctx.filter = 'brightness(' + state.digitalBrightness + ')';
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, size, size);
-    if (needBrighten && !canFilter) brightenManually(ctx, size, size, state.digitalBrightness);
+    ctx.drawImage(video, sx, sy, cw, ch, 0, 0, out.w, out.h);
+    if (needBrighten && !canFilter) brightenManually(ctx, out.w, out.h, state.digitalBrightness);
 
     return canvas;
   }
@@ -604,7 +804,7 @@
     display.width = view.w;
     display.height = view.h;
     drawPhotoInto(display.getContext('2d'), view.w, view.h);
-    $('review-frame').style.aspectRatio = view.w + ' / ' + view.h;
+    reviewPlacement.layout();
   }
 
   function openReview(source, mode) {
@@ -637,6 +837,7 @@
 
   function autoPlaceReview() {
     var display = $('review-canvas');
+    if (state.plateMode === 'band') return;   // ในโหมดแถบป้ายไม่ได้ทับภาพ ไม่ต้องหาที่ว่าง
     if (!state.photoSource || !state.plateCanvas || !display.width) return;
     var pw = display.width, ph = display.height;
     var plateW = Math.max(32, Math.round(state.placement.widthRatio * pw));
@@ -653,17 +854,29 @@
   function composeFinal() {
     var out = fitted(sourceSize(), MAX_OUTPUT_SIDE);
     var plate = state.plateCanvas;
+    var L = shotLayout(out.w, out.h);
+
     var canvas = document.createElement('canvas');
-    canvas.width = out.w;
-    canvas.height = out.h;
+    canvas.width = L.w;
+    canvas.height = L.h;
     var ctx = canvas.getContext('2d');
     drawPhotoInto(ctx, out.w, out.h);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    if (L.band) {
+      ctx.fillStyle = BAND_BG;
+      ctx.fillRect(0, out.h, L.w, L.band);
+      ctx.drawImage(plate,
+        Math.round((L.w - L.plateW) / 2),
+        Math.round(out.h + (L.band - L.plateH) / 2),
+        L.plateW, L.plateH);
+      return canvas;
+    }
 
     var p = state.placement;
     var w = Math.max(1, Math.round(p.widthRatio * out.w));
     var h = Math.max(1, Math.round(w * plate.height / plate.width));
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(plate, Math.round(p.xRatio * out.w), Math.round(p.yRatio * out.h), w, h);
     return canvas;
   }
@@ -764,7 +977,8 @@
     $('cam-code').textContent = state.code;
     showScreen('screen-camera');
     return startCamera().then(function () {
-      if (state.placement.xRatio === 0 && state.placement.yRatio === 0) {
+      if (state.plateMode === 'inside' &&
+          state.placement.xRatio === 0 && state.placement.yRatio === 0) {
         camPlacement.resetToBottom();
       } else {
         camPlacement.clamp(state.placement);
@@ -776,11 +990,28 @@
   /* ---------------- ผูกปุ่มทั้งหมด ---------------- */
 
   function init() {
-    camPlacement = new PlacementController($('cam-plate'), $('cam-frame'), $('sl-size'));
-    reviewPlacement = new PlacementController($('review-plate'), $('review-frame'),
-      $('sl-review-size'));
+    camPlacement = new PlacementController(
+      $('cam-plate'), $('cam-frame'), $('sl-size'), $('cam-shot'), $('cam-band'),
+      function () {
+        var v = $('video');
+        return { w: v.videoWidth, h: v.videoHeight };
+      });
+    reviewPlacement = new PlacementController(
+      $('review-plate'), $('review-frame'), $('sl-review-size'), $('review-shot'), $('review-band'),
+      sourceSize);
 
     setupCodeScreen();
+    bindModeSeg('cam-mode');
+    bindModeSeg('review-mode');
+    syncModeUI();
+
+    // ขนาดภาพจากกล้องรู้ได้หลัง metadata มาถึง และเปลี่ยนอีกทีเมื่อหมุนเครื่อง
+    ['loadedmetadata', 'resize'].forEach(function (ev) {
+      $('video').addEventListener(ev, function () {
+        syncCameraFormat();
+        camPlacement.render();
+      });
+    });
 
     $('btn-live').addEventListener('click', openCamera);
 
@@ -810,7 +1041,7 @@
     $('btn-reset-plate').addEventListener('click', function () { camPlacement.resetToBottom(); });
 
     $('btn-shutter').addEventListener('click', function () {
-      var shot = captureSquare();
+      var shot = captureFrame();
       if (!shot) { toast('กล้องยังไม่พร้อม ลองอีกครั้ง'); return; }
       stopCamera();
       openReview(shot, 'live');

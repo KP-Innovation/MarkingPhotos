@@ -15,6 +15,12 @@
   var STORE_KEY = 'markingphotos.v1';
   var JPEG_QUALITY = 0.95;
 
+  /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
+  var BUILD = '20260810e';
+
+  // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
+  window.MarkingPhotosBuild = BUILD;
+
   /* ประเภทรูป — ต่อท้ายเลขงานเป็นชื่อไฟล์ เลือกหรือไม่เลือกก็ได้ */
   var PHOTO_TYPES = ['Front', 'Front-Ruler', 'Rear-Ruler', 'Horizental-Side', 'Vertical-Ruler'];
 
@@ -106,6 +112,33 @@
     Promise.all(jobs).then(function () {
       location.replace(location.pathname + '?fresh=' + Date.now());
     });
+  }
+
+  /*
+   * บังคับดึงโค้ดรุ่นใหม่โดยไม่ต้องให้ผู้ใช้ไปล้างแคชเบราว์เซอร์เอง
+   * บน iOS แอปที่เปิดจากหน้าโฮมแทบไม่เคยเช็ก sw.js ตัวใหม่ให้เลย จึงต้องมีปุ่มสั่งเอง
+   */
+  function checkUpdate() {
+    var btn = $('btn-update');
+    btn.disabled = true;
+    btn.textContent = 'กำลังตรวจ...';
+
+    var job = navigator.serviceWorker
+      ? navigator.serviceWorker.getRegistration().then(function (reg) {
+          if (!reg) return null;
+          return reg.update().then(function () {
+            var fresh = reg.installing || reg.waiting;
+            if (fresh) fresh.postMessage('skip-waiting');
+            return fresh;
+          });
+        }).catch(function () { return null; })
+      : Promise.resolve(null);
+
+    // ให้เวลา service worker ติดตั้งตัวใหม่สักพัก แล้วค่อยโหลดหน้าใหม่แบบเลี่ยงแคช
+    job.then(function () { return new Promise(function (r) { setTimeout(r, 1500); }); })
+      .then(function () {
+        location.replace(location.pathname + '?u=' + Date.now());
+      });
   }
 
   window.addEventListener('error', function (e) { showFatal(e.message); });
@@ -1181,8 +1214,18 @@
       if ($('screen-camera').classList.contains('is-active') && !state.stream) startCamera();
     });
 
+    $('build-id').textContent = 'รุ่น ' + BUILD;
+    $('btn-update').addEventListener('click', checkUpdate);
+    $('btn-hardreset').addEventListener('click', hardReset);
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(function () { /* ใช้ต่อได้แม้ลงทะเบียนไม่สำเร็จ */ });
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        // เช็กรุ่นใหม่ทุกครั้งที่กลับเข้าแอป ไม่ต้องรอให้เบราว์เซอร์นึกได้เอง
+        reg.update().catch(function () {});
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) reg.update().catch(function () {});
+        });
+      }).catch(function () { /* ใช้ต่อได้แม้ลงทะเบียนไม่สำเร็จ */ });
     }
   }
 

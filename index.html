@@ -15,7 +15,49 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preload" href="assets/fonts/anuphan-thai.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="style.css">
+<!-- ?v= ต้องตรงกับ BUILD ใน sw.js เสมอ ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างโค้ดเก่า -->
+<link rel="stylesheet" href="style.css?v=20260810e">
+<script>
+/*
+ * ตัวกู้โค้ดค้าง — ต้องอยู่ในไฟล์นี้เท่านั้น ห้ามย้ายไป app.js
+ *
+ * index.html ถูกดึงจากเน็ตใหม่เสมอ (service worker ใช้ network-first กับ navigation)
+ * แต่ service worker รุ่นเก่าจับคู่ไฟล์แบบ ignoreSearch คือมองข้าม ?v= ทิ้ง
+ * มันจึงหยิบ app.js ตัวเก่าในแคชมาเสิร์ฟให้ ทั้งที่หน้านี้เป็นตัวใหม่แล้ว
+ * ผลคือแอปค้างโค้ดเก่าแบบผู้ใช้ไม่มีทางรู้ตัว ต้องไปล้างเครื่องเองซึ่งไม่ควร
+ *
+ * ถ้าโค้ดที่โหลดมาเป็นคนละรุ่นกับหน้านี้ ให้ล้างแคชแล้วโหลดใหม่ให้เอง หนึ่งครั้งต่อหนึ่งรอบเปิด
+ */
+(function () {
+  var BUILD = '20260810e';
+  window.__BUILD = BUILD;
+
+  window.addEventListener('load', function () {
+    if (window.MarkingPhotosBuild === BUILD) return;
+    try {
+      if (sessionStorage.getItem('mp-recover') === BUILD) return;   // กู้ไปแล้วรอบนึง อย่าวนซ้ำ
+      sessionStorage.setItem('mp-recover', BUILD);
+    } catch (err) { return; }
+
+    var jobs = [];
+    if (window.caches) {
+      jobs.push(caches.keys().then(function (keys) {
+        return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+      }).catch(function () {}));
+    }
+    // ถอน service worker ทิ้งเลย ไม่ใช่แค่สั่ง update
+    // เพราะตัวที่ค้างอยู่คือตัวที่กำลังยัดไฟล์เก่ามาให้ ต้องเอามันออกจากทางก่อน
+    // โหลดรอบถัดไปจะวิ่งตรงไปที่เน็ต แล้ว app.js ตัวใหม่จะลงทะเบียนตัวใหม่ให้เอง
+    if (navigator.serviceWorker) {
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+        return Promise.all(regs.map(function (r) { return r.unregister(); }));
+      }).catch(function () {}));
+    }
+    var go = function () { location.replace(location.pathname + '?r=' + Date.now()); };
+    Promise.all(jobs).then(go, go);
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -51,6 +93,13 @@
 
     <input id="file-native" type="file" accept="image/*" capture="environment" hidden>
     <input id="file-pick" type="file" accept="image/*" hidden>
+
+    <!-- ไว้ดูว่าเครื่องนี้กำลังใช้โค้ดรุ่นไหน และบังคับดึงรุ่นใหม่ได้เองโดยไม่ต้องล้างเครื่อง -->
+    <p class="build">
+      <span id="build-id"></span>
+      <button id="btn-update" type="button" class="linkbtn">ตรวจอัปเดต</button>
+      <button id="btn-hardreset" type="button" class="linkbtn">ล้างข้อมูลแอป</button>
+    </p>
   </div>
 </section>
 
@@ -165,8 +214,8 @@
   <button id="btn-reset" type="button" class="btn btn--primary">ล้างข้อมูลแอปแล้วเริ่มใหม่</button>
 </div>
 
-<script src="js/plate.js"></script>
-<script src="js/autoplace.js"></script>
-<script src="js/app.js"></script>
+<script src="js/plate.js?v=20260810e"></script>
+<script src="js/autoplace.js?v=20260810e"></script>
+<script src="js/app.js?v=20260810e"></script>
 </body>
 </html>

@@ -1,17 +1,25 @@
-/* แคชไฟล์แอปไว้ใช้ตอนสัญญาณไม่ดี — เปลี่ยน CACHE เมื่อแก้ไฟล์ใด ๆ */
-var CACHE = 'markingphotos-v9';
+/*
+ * แคชไฟล์แอปไว้ใช้ตอนสัญญาณไม่ดี
+ *
+ * ⚠️ แก้ไฟล์โค้ดเมื่อไหร่ ต้องเปลี่ยน BUILD ทุกครั้ง แล้วแก้เลข ?v= ใน index.html ให้ตรงกัน
+ * ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างอยู่กับโค้ดเก่าแบบไม่มีทางรู้ตัว
+ * (บน iOS แอปที่เปิดจากหน้าโฮมแทบไม่เคยเช็ก sw.js ตัวใหม่ให้เลย)
+ */
+var BUILD = '20260810e';
+var CACHE = 'markingphotos-' + BUILD;
 
 var GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
   .map(function (c) { return 'assets/glyphs/' + c + '.png'; })
   .concat(['assets/glyphs/dash.png']);
 
+/* ไฟล์โค้ดต้องมี ?v= ตรงกับที่ index.html เรียก ไม่งั้นแคชคนละคีย์กัน */
 var SHELL = [
   './',
   'index.html',
-  'style.css',
-  'js/plate.js',
-  'js/autoplace.js',
-  'js/app.js',
+  'style.css?v=' + BUILD,
+  'js/plate.js?v=' + BUILD,
+  'js/autoplace.js?v=' + BUILD,
+  'js/app.js?v=' + BUILD,
   'assets/metrics.json',
   'assets/fonts/anuphan-thai.woff2',
   'assets/fonts/anuphan-latin.woff2',
@@ -26,8 +34,10 @@ self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE).then(function (cache) {
       // ลงทีละไฟล์ ถ้าไฟล์ใดไฟล์หนึ่งโหลดไม่ได้ ต้องไม่ทำให้ทั้งชุดล้มจนติดตั้งไม่สำเร็จ
+      // cache:'reload' = ข้าม HTTP cache ของเบราว์เซอร์ ไม่งั้นอาจได้ไฟล์เก่ามาใส่แคชใหม่
       return Promise.all(SHELL.map(function (url) {
-        return cache.add(url).catch(function () { /* ข้ามไฟล์ที่โหลดไม่ได้ */ });
+        return cache.add(new Request(url, { cache: 'reload' }))
+          .catch(function () { return cache.add(url).catch(function () {}); });
       }));
     }).then(function () { return self.skipWaiting(); })
   );
@@ -68,19 +78,40 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
+  function fromNetwork() {
+    return fetch(req).then(function (res) {
+      if (res && res.ok && res.type === 'basic') {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (cache) { cache.put(req, copy); });
+      }
+      return res;
+    });
+  }
+
+  /*
+   * ไฟล์อื่น ๆ: ใช้ของในแคชก่อนเพื่อความเร็วและใช้ออฟไลน์ได้
+   * แต่ถ้าเป็นไฟล์โค้ด ให้ดึงตัวใหม่มาทับไว้เงียบ ๆ ด้วย เผื่อวันไหนลืมเปลี่ยน BUILD
+   * รอบหน้าที่เปิดจะได้ของใหม่เอง ไม่ค้างของเก่าถาวรเหมือนเดิม
+   */
+  var isCode = /\.(?:html|js|css|json|webmanifest)$/i.test(new URL(req.url).pathname);
+
   event.respondWith(
-    caches.match(req, { ignoreSearch: true }).then(function (hit) {
-      if (hit) return hit;
-      return fetch(req).then(function (res) {
-        if (res && res.ok && res.type === 'basic') {
-          var copy = res.clone();
-          caches.open(CACHE).then(function (cache) { cache.put(req, copy); });
-        }
-        return res;
-      }).catch(function () {
+    caches.match(req).then(function (hit) {
+      if (hit) {
+        if (isCode) fromNetwork().catch(function () { /* ออฟไลน์ก็ช่างมัน */ });
+        return hit;
+      }
+      return fromNetwork().catch(function () {
         // ต้องคืน Response เสมอ ถ้าคืน undefined เบราว์เซอร์จะถือว่าคำขอนี้พัง
-        return new Response('', { status: 504, statusText: 'offline' });
+        return caches.match(req, { ignoreSearch: true }).then(function (old) {
+          return old || new Response('', { status: 504, statusText: 'offline' });
+        });
       });
     })
   );
+});
+
+/* ให้หน้าเว็บสั่งข้ามคิวรอได้ ตอนผู้ใช้กด "ตรวจอัปเดต" เอง */
+self.addEventListener('message', function (event) {
+  if (event.data === 'skip-waiting') self.skipWaiting();
 });

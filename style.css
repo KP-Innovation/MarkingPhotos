@@ -442,6 +442,30 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 }
 .shutter:active { transform: scale(.94); }
 
+/* ---------- แถบรุ่นโค้ด ---------- */
+.build {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--muted, #8b97a8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#build-id { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+.linkbtn {
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--orange-hot);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* ---------- อื่น ๆ ---------- */
 .error {
   margin: 0;

@@ -445,6 +445,30 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   text-underline-offset: 3px;
 }
 
+/* ---------- แถบโฟลเดอร์ปลายทาง (เฉพาะบนคอม) ---------- */
+.savedir {
+  margin: 0;
+  padding: 2px 18px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #8b97a8;
+  flex: none;
+}
+.savedir[hidden] { display: none; }
+.savedir__label { flex: none; }
+.savedir__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--dark-ink);
+}
+
 /* ---------- อื่น ๆ ---------- */
 /* คำใบ้ใต้รูป — ต้องนับความสูงของมันตอนคำนวณกล่อง .shot ดู stageRoom() ใน app.js */
 .hint {

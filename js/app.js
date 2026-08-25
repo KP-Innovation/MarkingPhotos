@@ -25,7 +25,7 @@
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20260825a';
+  var BUILD = '20260825b';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;
@@ -70,6 +70,7 @@
     plateURL: '',          // ภาพป้ายสำหรับแสดงผล — แต่ละกล่องมี <img> ของตัวเอง
     photoSource: null,     // รูปดิบที่กำลังตรวจอยู่ (ImageBitmap หรือ canvas) — เก็บก้อนเดียว
     rotation: 0,           // 0/90/180/270 องศา สำหรับรูปที่มาเอียง
+    saveDir: null,         // โฟลเดอร์ประจำบนคอม (FileSystemDirectoryHandle) ถ้าตั้งไว้
     saving: false
   };
 
@@ -943,34 +944,192 @@
     });
   }
 
+  /* ---------------- บันทึกลงโฟลเดอร์ (เฉพาะเบราว์เซอร์บนคอม) ---------------- */
+
   /*
-   * บันทึกลงอัลบั้ม
-   * iOS ไม่มี API เขียนลง Photos โดยตรง ทางที่ใกล้ที่สุดคือ share sheet
-   * แล้วให้ผู้ใช้แตะ "Save Image" อีกหนึ่งครั้ง — ข้ามขั้นนี้ไม่ได้
+   * Chrome/Edge บนคอมเขียนไฟล์ลงโฟลเดอร์ที่ผู้ใช้เลือกได้เอง (File System Access API)
+   * ไม่มีบน Safari, Firefox และมือถือทุกตัว — จึงต้องมีทางเดิม (share sheet / ดาวน์โหลด) สำรองไว้เสมอ
+   *
+   * ตั้งโฟลเดอร์ประจำไว้ครั้งเดียว หลังจากนั้นกดบันทึกแล้วไฟล์ลงโฟลเดอร์นั้นเลย ไม่มีหน้าต่างถาม
+   * ตัว handle เก็บลง IndexedDB (localStorage เก็บไม่ได้ เพราะไม่ใช่ข้อความ) จึงอยู่ข้ามการปิดเปิดแอป
+   */
+  var CAN_PICK_FILE = typeof window.showSaveFilePicker === 'function';
+  var CAN_PICK_DIR = typeof window.showDirectoryPicker === 'function';
+  var DIR_DB = 'markingphotos';
+  var DIR_STORE = 'handles';
+  var DIR_KEY = 'outdir';
+
+  function dirStore(mode) {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('เครื่องนี้ไม่มี IndexedDB')); return; }
+      var req = indexedDB.open(DIR_DB, 1);
+      req.onupgradeneeded = function () {
+        if (!req.result.objectStoreNames.contains(DIR_STORE)) req.result.createObjectStore(DIR_STORE);
+      };
+      req.onerror = function () { reject(req.error); };
+      req.onsuccess = function () {
+        var db = req.result;
+        var tx = db.transaction(DIR_STORE, mode);
+        tx.oncomplete = function () { db.close(); };
+        resolve(tx.objectStore(DIR_STORE));
+      };
+    });
+  }
+
+  function loadSaveDir() {
+    if (!CAN_PICK_DIR) return Promise.resolve(null);
+    return dirStore('readonly').then(function (store) {
+      return new Promise(function (resolve) {
+        var req = store.get(DIR_KEY);
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { resolve(null); };
+      });
+    }).catch(function () { return null; });
+  }
+
+  function storeSaveDir(handle) {
+    return dirStore('readwrite').then(function (store) {
+      if (handle) store.put(handle, DIR_KEY);
+      else store.delete(DIR_KEY);
+    }).catch(function () {
+      // จำไม่ได้ก็ยังใช้งานรอบนี้ได้ แต่ต้องบอก ไม่งั้นผู้ใช้จะงงว่าทำไมเปิดใหม่แล้วโฟลเดอร์หาย
+      if (handle) toast('ตั้งโฟลเดอร์ให้รอบนี้ได้ แต่จำข้ามการเปิดใหม่ไม่ได้');
+    });
+  }
+
+  /*
+   * สิทธิ์เขียนโฟลเดอร์หมดอายุเมื่อปิดแท็บ ต้องขอใหม่ครั้งแรกของแต่ละรอบ
+   * และต้องขอ "ตอนที่ผู้ใช้เพิ่งกดปุ่ม" เท่านั้น เบราว์เซอร์ถึงจะยอมเปิดกล่องถาม
+   */
+  function ensureDirPermission(handle) {
+    if (!handle || !handle.queryPermission) return Promise.resolve(false);
+    var opts = { mode: 'readwrite' };
+    return handle.queryPermission(opts).then(function (level) {
+      if (level === 'granted') return true;
+      return handle.requestPermission(opts).then(function (next) { return next === 'granted'; });
+    }).catch(function () { return false; });
+  }
+
+  function setSaveDir(handle) {
+    state.saveDir = handle || null;
+    storeSaveDir(state.saveDir);
+    syncSaveDirUI();
+  }
+
+  function syncSaveDirUI() {
+    var row = $('savedir');
+    row.hidden = !(CAN_PICK_DIR || CAN_PICK_FILE);
+    if (row.hidden) return;
+    var has = !!state.saveDir;
+    $('savedir-name').textContent = has ? state.saveDir.name : 'ถามที่เก็บทุกครั้ง';
+    $('btn-savedir').textContent = has ? 'เปลี่ยนโฟลเดอร์' : 'ตั้งโฟลเดอร์ประจำ';
+    $('btn-savedir').hidden = !CAN_PICK_DIR;
+    $('btn-savedir-clear').hidden = !has;
+  }
+
+  function chooseSaveDir() {
+    window.showDirectoryPicker({ mode: 'readwrite', startIn: 'pictures' }).then(function (handle) {
+      return ensureDirPermission(handle).then(function (ok) {
+        if (!ok) { toast('ยังไม่ได้อนุญาตให้เขียนลงโฟลเดอร์นี้'); return; }
+        setSaveDir(handle);
+        toast('ต่อไปกดบันทึกแล้วไฟล์จะลง "' + handle.name + '" เลย');
+      });
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return;      // ผู้ใช้กดยกเลิกเอง
+      toast('เลือกโฟลเดอร์ไม่ได้: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+    });
+  }
+
+  /* ไม่เขียนทับของเดิม — ถ่ายซ้ำประเภทเดิมให้ได้ _2 _3 ต่อท้ายไปเรื่อย ๆ */
+  function freeName(dir, name) {
+    var dot = name.lastIndexOf('.');
+    var base = dot > 0 ? name.slice(0, dot) : name;
+    var ext = dot > 0 ? name.slice(dot) : '';
+    var step = function (n) {
+      var candidate = n === 1 ? name : base + '_' + n + ext;
+      if (n > 99) return Promise.resolve(candidate);
+      return dir.getFileHandle(candidate).then(
+        function () { return step(n + 1); },      // ชื่อนี้มีอยู่แล้ว ลองเลขถัดไป
+        function () { return candidate; }         // หาไม่เจอ = ว่าง ใช้ชื่อนี้ได้
+      );
+    };
+    return step(1);
+  }
+
+  function writeInto(dir, name, blob) {
+    return freeName(dir, name).then(function (finalName) {
+      return dir.getFileHandle(finalName, { create: true }).then(function (fh) {
+        return fh.createWritable().then(function (w) {
+          return w.write(blob).then(function () { return w.close(); });
+        });
+      }).then(function () {
+        toast('บันทึก ' + finalName + ' ลง "' + dir.name + '" แล้ว');
+      });
+    });
+  }
+
+  /* ---------------- บันทึก ---------------- */
+
+  /*
+   * บันทึกรูป — ไล่จากทางที่ดีที่สุดที่เครื่องนั้นทำได้ลงมา
+   *   1. โฟลเดอร์ประจำที่ตั้งไว้ (คอม) — ไม่มีหน้าต่างถามเลย ได้ชื่อไฟล์ที่ตั้งไว้ครบ
+   *   2. หน้าต่างเลือกที่เก็บของระบบ (คอม) — เติมชื่อไฟล์ให้เสร็จแล้ว
+   *   3. share sheet (มือถือ) — iOS ไม่มี API เขียนลง Photos ต้องแตะ "Save Image" อีกหนึ่งครั้ง
+   *   4. ดาวน์โหลดธรรมดา
+   *
+   * ⚠️ หน้าต่างเลือกไฟล์กับกล่องขอสิทธิ์ ต้องเรียก "ก่อน" ไปรวมภาพ
+   * เบราว์เซอร์ยอมเปิดให้เฉพาะจังหวะที่ผู้ใช้เพิ่งกดปุ่มเท่านั้น
+   * ถ้าไปรอ canvas.toBlob ของรูป 3000px ก่อน จังหวะนั้นหมดอายุแล้วจะโดนบล็อกเงียบ ๆ
    */
   function saveResult() {
     if (state.saving) return;
     state.saving = true;
     $('btn-save').disabled = true;
 
-    var work = composeFinal();
-    canvasToBlob(work).then(function (blob) {
-      work.width = 0;          // คืนหน่วยความจำทันทีที่ได้ไฟล์แล้ว
-      work.height = 0;
-      var name = outputName();
-      var file = new File([blob], name, { type: 'image/jpeg' });
+    var name = outputName();
+    var target = state.saveDir
+      ? ensureDirPermission(state.saveDir).then(function (ok) {
+          if (ok) return { dir: state.saveDir };
+          setSaveDir(null);
+          toast('โฟลเดอร์เดิมใช้ไม่ได้แล้ว ตั้งใหม่อีกครั้ง');
+          return {};
+        })
+      : Promise.resolve({});
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        return navigator.share({ files: [file] }).then(function () {
-          toast('แตะ "Save Image" เพื่อเก็บลงอัลบั้ม');
-        }).catch(function (err) {
-          if (err && err.name === 'AbortError') return;
-          downloadBlob(blob, name);
-        });
-      }
-      downloadBlob(blob, name);
+    target.then(function (dest) {
+      if (dest.dir || !CAN_PICK_FILE) return dest;
+      return window.showSaveFilePicker({
+        suggestedName: name,
+        types: [{ description: 'รูป JPEG', accept: { 'image/jpeg': ['.jpg'] } }]
+      }).then(function (file) { return { file: file }; },
+              function (err) { return { aborted: !!(err && err.name === 'AbortError') }; });
+    }).then(function (dest) {
+      if (dest.aborted) return;
+
+      var work = composeFinal();
+      return canvasToBlob(work).then(function (blob) {
+        work.width = 0;          // คืนหน่วยความจำทันทีที่ได้ไฟล์แล้ว
+        work.height = 0;
+        if (dest.dir) return writeInto(dest.dir, name, blob);
+        if (dest.file) {
+          return dest.file.createWritable().then(function (w) {
+            return w.write(blob).then(function () { return w.close(); });
+          }).then(function () { toast('บันทึก ' + dest.file.name + ' แล้ว'); });
+        }
+
+        var file = new File([blob], name, { type: 'image/jpeg' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          return navigator.share({ files: [file] }).then(function () {
+            toast('แตะ "Save Image" เพื่อเก็บลงอัลบั้ม');
+          }).catch(function (err) {
+            if (err && err.name === 'AbortError') return;
+            downloadBlob(blob, name);
+          });
+        }
+        downloadBlob(blob, name);
+      });
     }).catch(function (err) {
-      toast(err.message || 'บันทึกไม่สำเร็จ');
+      toast((err && err.message) || 'บันทึกไม่สำเร็จ');
     }).then(function () {
       state.saving = false;
       $('btn-save').disabled = false;
@@ -1061,6 +1220,14 @@
 
     $('btn-auto').addEventListener('click', autoPlaceReview);
     $('btn-save').addEventListener('click', saveResult);
+
+    syncSaveDirUI();
+    loadSaveDir().then(function (handle) { if (handle) { state.saveDir = handle; syncSaveDirUI(); } });
+    $('btn-savedir').addEventListener('click', chooseSaveDir);
+    $('btn-savedir-clear').addEventListener('click', function () {
+      setSaveDir(null);
+      toast('กลับไปถามที่เก็บทุกครั้ง');
+    });
     $('btn-reset').addEventListener('click', hardReset);
 
     $('build-id').textContent = 'รุ่น ' + BUILD;

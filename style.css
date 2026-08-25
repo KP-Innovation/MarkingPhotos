@@ -272,6 +272,9 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
  */
 .shot {
   position: relative;
+  /* ห้ามให้ flex บีบกล่องนี้เด็ดขาด — ความสูงที่ JS คำนวณไว้คือสัดส่วนของไฟล์ที่จะได้
+     ถ้ายอมให้หดแม้แต่นิดเดียว กรอบจะผิดสัดส่วนแล้วพรีวิวไม่ตรงกับรูปที่บันทึก */
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -289,8 +292,12 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
   touch-action: none;
 }
 
-.frame video,
-.frame canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
+/*
+ * รูปที่กำลังตรวจ: กล่องถูกคำนวณให้ตรงสัดส่วนรูปแล้ว fill จึงไม่ยืดอะไรเลย
+ * แต่ถ้าวันหลังกล่องเพี้ยนไปเศษพิกเซล fill จะยืดนิดเดียวแทนที่จะ "ตัดภาพทิ้งเงียบ ๆ"
+ * แบบ cover — พรีวิวกับไฟล์ที่บันทึกจึงอ้างอิงพิกัดเดียวกันเสมอ
+ */
+.frame canvas { display: block; width: 100%; height: 100%; object-fit: fill; }
 
 /* แถบป้ายใต้ภาพ — พื้นเข้มเพื่อให้ป้ายขาวอ่านออกและดูเป็นแถบตั้งใจ */
 .band {
@@ -302,40 +309,6 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 }
 .band img { display: block; height: auto; border-radius: 3px; }
 .band[hidden] { display: none; }   /* คลาส .band ทับ [hidden] ของเบราว์เซอร์ ต้องสั่งเอง */
-
-/*
- * กริด 9 ช่อง (กฎสามส่วน) ไว้เล็งให้ภาพตรง
- * ใช้กล่องซ้อนสองใบที่กินพื้นที่หนึ่งในสามตรงกลาง แล้วโชว์เฉพาะขอบ
- * ได้เส้นตั้ง 2 + เส้นนอน 2 พอดี ไม่มีเส้นเกินที่ริมกรอบเหมือนวิธี background repeat
- */
-.frame__grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.frame__grid::before,
-.frame__grid::after {
-  content: "";
-  position: absolute;
-  /* เงาดำจาง ๆ ให้เส้นขาวยังเห็นได้บนฉากสว่าง */
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .55));
-}
-.frame__grid::before {
-  top: 0;
-  bottom: 0;
-  left: 33.3333%;
-  right: 33.3333%;
-  border-left: 1px solid rgba(255, 255, 255, .45);
-  border-right: 1px solid rgba(255, 255, 255, .45);
-}
-.frame__grid::after {
-  left: 0;
-  right: 0;
-  top: 33.3333%;
-  bottom: 33.3333%;
-  border-top: 1px solid rgba(255, 255, 255, .45);
-  border-bottom: 1px solid rgba(255, 255, 255, .45);
-}
 
 .plate-layer {
   position: absolute;
@@ -448,26 +421,6 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 }
 .chip[hidden] { display: none; }
 
-/* ---------- ชัตเตอร์ ---------- */
-.shutter-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 18px calc(14px + var(--safe-bottom));
-  gap: 12px;
-  flex: none;
-}
-.shutter-row .chip { flex: 1; max-width: 130px; text-align: center; }
-.shutter {
-  width: 70px;
-  height: 70px;
-  flex: none;
-  border-radius: 50%;
-  border: 4px solid rgba(255, 255, 255, .85);
-  background: var(--orange-hot);
-}
-.shutter:active { transform: scale(.94); }
-
 /* ---------- แถบรุ่นโค้ด ---------- */
 .build {
   margin: 18px 0 0;
@@ -493,16 +446,7 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 }
 
 /* ---------- อื่น ๆ ---------- */
-.error {
-  margin: 0;
-  padding: 0 20px;
-  color: #ff9f92;
-  font-size: 13px;
-  text-align: center;
-}
-.error:empty { display: none; }
-
-/* บอกว่ากล้องส่งภาพมาสัดส่วนอะไรจริง ๆ — ไว้เช็กว่าไม่โดนครอปเป็น 16:9 */
+/* คำใบ้ใต้รูป — ต้องนับความสูงของมันตอนคำนวณกล่อง .shot ดู stageRoom() ใน app.js */
 .hint {
   margin: 0;
   padding: 0 20px;

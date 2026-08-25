@@ -1,11 +1,13 @@
 /*
- * ป้ายเลขที่งาน — แอปกล้องมือถือ (PWA)
+ * ป้ายเลขที่งาน — แอปมือถือ (PWA)
  *
- * สองโหมด
- *   1. กล้องสด   — เห็นป้ายลอยอยู่ในภาพตั้งแต่ตอนเล็ง กะระยะได้ก่อนกด
- *   2. กล้องเครื่อง — เรียกแอปกล้องของเครื่อง (ภาพคมเต็มคุณภาพ) แล้วมาวางป้ายทีหลัง
+ * รูปเข้าได้สองทาง แล้วไปจบที่หน้าตรวจรูปหน้าเดียวกัน
+ *   1. ถ่ายด้วยกล้องของเครื่อง — เรียกแอปกล้องเนทีฟ ได้ภาพคมเต็มคุณภาพและสัดส่วนจริงของเครื่อง
+ *   2. เลือกรูปที่ถ่ายไว้แล้ว จากอัลบั้มหรือโฟลเดอร์
  *
- * ทั้งสองโหมดจบที่หน้าเดียวกัน: ป้ายยังขยับ/ย่อขยายได้จนกว่าจะกดบันทึก
+ * เคยมีโหมด "กล้องสด" (getUserMedia + ป้ายลอยตอนเล็ง) แต่ถอดออกแล้ว 2026-08-25
+ * เพราะภาพที่ได้แคบและด้อยกว่ากล้องเนทีฟจริง ๆ (ไม่ผ่าน Smart HDR/Deep Fusion
+ * และ iOS ไม่ให้ปรับซูม/แสงจากฮาร์ดแวร์) — ของเดิมยังอยู่ในประวัติ git ถ้าอยากได้คืน
  */
 (function () {
   'use strict';
@@ -13,10 +15,17 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var STORE_KEY = 'markingphotos.v1';
+
+  /*
+   * ค่าที่ค้างอยู่ในเครื่องบางตัวเป็นของ "กล้องสด" ที่ถอดออกไปแล้ว ต้องล้างครั้งเดียวตอนอัปรุ่น
+   * โดยเฉพาะ aspect: กล้องสดเคยเซฟ '1:1' ทับให้เองทุกครั้งที่กดชัตเตอร์
+   * ถ้าปล่อยไว้ รูปจากกล้องเครื่องจะโดนครอปเป็นจัตุรัสทิ้งโดยที่ผู้ใช้ไม่ได้สั่งเลย
+   */
+  var STORE_MIGRATION = 'nolivecam';
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20260810g';
+  var BUILD = '20260825a';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;
@@ -41,12 +50,6 @@
     { id: '16:9', label: '16:9', long: 16, short: 9 }
   ];
 
-  /*
-   * กล้องของแอปเล็งเป็นจัตุรัสอย่างเดียว งานที่ใช้จริงเป็น 1:1 หมด ไม่ต้องมีให้เลือกให้ยุ่ง
-   * ส่วนหน้าตรวจรูปยังเลือกได้ครบ เพราะต้องรองรับรูปจากกล้องเครื่องและจากแกลเลอรีด้วย
-   */
-  var CAM_ASPECT = '1:1';
-
   var CROP_MAX_ZOOM = 6;         // ซูมกรอบตัดเข้าได้สูงสุดกี่เท่า
 
   var BAND_FILL = 0.62;          // ป้ายสูงกี่ส่วนของแถบ ที่เหลือเป็นขอบบน-ล่างเท่า ๆ กัน
@@ -58,7 +61,7 @@
   var state = {
     code: '',
     photoType: '',
-    aspect: '4:3',         // สัดส่วนกรอบภาพ ดู ASPECTS
+    aspect: 'full',        // สัดส่วนกรอบภาพ ดู ASPECTS — ตั้งต้นคือไม่ตัดอะไรเลย
     crop: { scale: 1, cx: 0.5, cy: 0.5 },   // กรอบตัด: ระดับซูม + จุดกึ่งกลาง (สัดส่วน 0-1 ของรูป)
     plateMode: 'band',     // 'band' = ป้ายใต้ภาพ, 'inside' = ป้ายทับอยู่ในภาพ (แบบโปรแกรมพีซี)
     bandHeight: 0.12,      // ความสูงแถบเทียบความสูงภาพ (แยกจาก placement.widthRatio ของโหมดทับภาพ)
@@ -67,15 +70,7 @@
     plateURL: '',          // ภาพป้ายสำหรับแสดงผล — แต่ละกล่องมี <img> ของตัวเอง
     photoSource: null,     // รูปดิบที่กำลังตรวจอยู่ (ImageBitmap หรือ canvas) — เก็บก้อนเดียว
     rotation: 0,           // 0/90/180/270 องศา สำหรับรูปที่มาเอียง
-    stream: null,
-    track: null,
-    facing: 'environment',
-    digitalZoom: 1,
-    hardwareZoom: false,
-    digitalBrightness: 1,
-    hardwareExposure: false,
-    saving: false,
-    source: 'live'         // รูปที่กำลังตรวจมาจากไหน: 'live' หรือ 'file'
+    saving: false
   };
 
   /* ---------------- เก็บค่าล่าสุด ---------------- */
@@ -163,7 +158,7 @@
   }
 
   function showScreen(id) {
-    ['screen-code', 'screen-camera', 'screen-review'].forEach(function (s) {
+    ['screen-code', 'screen-review'].forEach(function (s) {
       $(s).classList.toggle('is-active', s === id);
     });
   }
@@ -171,7 +166,7 @@
   /* ---------------- หน้าเลขที่งาน ---------------- */
 
   function setActionsEnabled(on) {
-    ['btn-live', 'btn-native', 'btn-pick'].forEach(function (id) { $(id).disabled = !on; });
+    ['btn-native', 'btn-pick'].forEach(function (id) { $(id).disabled = !on; });
   }
 
   /*
@@ -231,6 +226,10 @@
 
   function setupCodeScreen() {
     var store = loadStore();
+    if (store.migration !== STORE_MIGRATION) {
+      store.aspect = null;
+      saveStore({ migration: STORE_MIGRATION, aspect: null });
+    }
     var input = $('in-code');
     input.value = store.code || '';
     if (store.placement) state.placement = store.placement;
@@ -471,23 +470,56 @@
   }
 
   /*
+   * ที่ว่างจริงของเวทีที่กล่อง .shot จะกินได้
+   *
+   * ⚠️ ต้องหักความสูงของพี่น้องในเวที (บรรทัดคำใบ้ / ข้อความ error) กับ gap ออกก่อน
+   * เคยคิดจาก stage.clientHeight ดื้อ ๆ แล้วสั่งความสูงเกินที่มีจริง flex เลยบีบกล่องให้เตี้ยลงเงียบ ๆ
+   * (สั่ง 347px ได้จริง 330px) → กรอบผิดสัดส่วน object-fit ตัดหัวท้ายรูปทิ้งในพรีวิว
+   * แต่ไฟล์ที่บันทึกได้ภาพครบ ป้ายกับภาพจึงเลื่อนไม่ตรงกับที่เห็นบนจอ
+   */
+  function stageRoom(shotEl) {
+    var stage = shotEl.parentElement;
+    var cs = window.getComputedStyle(stage);
+    var gap = parseFloat(cs.rowGap) || 0;
+    var w = stage.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    var h = stage.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    var kids = stage.children;
+    var used = 0, boxes = 0;
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (el === shotEl) { boxes++; continue; }
+      var kh = el.getBoundingClientRect().height;
+      if (kh <= 0.5) continue;            // <p> ที่ยังไม่มีข้อความไม่กินที่และไม่นับ gap
+      used += kh;
+      boxes++;
+    }
+    h -= used + gap * Math.max(0, boxes - 1);
+    return { w: Math.max(1, w), h: Math.max(1, h) };
+  }
+
+  /*
    * จัดขนาดกล่อง .shot ให้พอดีเวทีทั้งกว้างและสูง
    * ต้องคิดเป็น px เอง เพราะ aspect-ratio ของ CSS ทำ "contain" สองแกนพร้อมกันไม่ได้
+   *
+   * ใช้ scale ตัวเดียวคูณทุกส่วน (ภาพ + แถบ) และคง px เป็นทศนิยม
+   * กรอบภาพจึงได้สัดส่วนตรงกับรูปเป๊ะ ๆ ไม่ต้องพึ่งการปัดเศษให้บังเอิญลงตัว
    */
   function applyShot(shotEl, bandEl, imgW, imgH) {
     var L = shotLayout(imgW, imgH);
     if (!L.w || !L.h) return L;
 
-    var stage = shotEl.parentElement;
-    var availW = Math.max(1, stage.clientWidth - 8);      // เผื่อ padding ของเวที
-    var availH = Math.max(1, stage.clientHeight - 8);
-    var w = Math.min(availW, availH * (L.w / L.h));
-    shotEl.style.width = Math.round(w) + 'px';
-    shotEl.style.height = Math.round(w * L.h / L.w) + 'px';
+    var room = stageRoom(shotEl);
+    // หน้าจอยังซ่อนอยู่ = วัดขนาดไม่ได้ อย่าเขียนค่ามั่ว ๆ ทับของเดิม เดี๋ยวโผล่มาแล้วกล่องเหลือ 1px
+    if (room.w < 2 || room.h < 2) return L;
+    var scale = Math.min(room.w / L.w, room.h / L.h);
+    var frameH = imgH * scale;                 // พื้นที่ภาพล้วน — ต้องเท่าสัดส่วนรูปเป๊ะ
+    var bandH = L.band * scale;
+    shotEl.style.width = (L.w * scale).toFixed(2) + 'px';
+    shotEl.style.height = (frameH + bandH).toFixed(2) + 'px';
 
     bandEl.hidden = !L.band;
     if (L.band) {
-      bandEl.style.height = (L.band / L.h * 100) + '%';
+      bandEl.style.height = bandH.toFixed(2) + 'px';   // px ไม่ใช่ % เศษจะได้ไม่ไปโผล่ที่กรอบภาพ
       var img = bandEl.firstElementChild;
       if (!img || img.tagName !== 'IMG') {
         bandEl.innerHTML = '';
@@ -561,8 +593,9 @@
   };
 
   PlacementController.prototype.render = function () {
-    if (!state.plateCanvas) return;
+    // จัดกล่องก่อนเสมอ แม้ยังไม่มีป้าย — ไม่งั้นกล่องภาพค้างขนาดผิดตั้งแต่ครั้งแรก
     this.layout();
+    if (!state.plateCanvas) return;
     if (state.plateMode === 'band') {
       this.layer.hidden = true;                        // ป้ายอยู่ในแถบ ไม่ต้องมีตัวลากทับภาพ
       if (this.slider) this.slider.value = String(state.bandHeight);
@@ -676,7 +709,6 @@
     saveStore({ placement: p });
   };
 
-  var camPlacement = null;
   var reviewPlacement = null;
 
   /* ---------------- เลือกสัดส่วนภาพ ---------------- */
@@ -725,31 +757,25 @@
     state.plateMode = mode;
     saveStore({ plateMode: mode });
     syncModeUI();
-    if (camPlacement) camPlacement.render();
     if (reviewPlacement) reviewPlacement.render();
   }
 
   function syncModeUI() {
-    ['cam-mode', 'review-mode'].forEach(function (id) {
-      var btns = $(id).children;
-      for (var i = 0; i < btns.length; i++) {
-        btns[i].classList.toggle('is-on', btns[i].getAttribute('data-mode') === state.plateMode);
-      }
-    });
+    var btns = $('review-mode').children;
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('is-on', btns[i].getAttribute('data-mode') === state.plateMode);
+    }
     // ปุ่มจัดตำแหน่งไม่มีความหมายในโหมดแถบ ป้ายอยู่กลางแถบตายตัว
     var band = state.plateMode === 'band';
-    $('btn-reset-plate').hidden = band;
     $('btn-auto').hidden = band;
 
     // สไลเดอร์ตัวเดียวกันแต่คุมคนละอย่าง จึงต้องเปลี่ยนทั้งช่วงค่าและป้ายกำกับ
-    [['sl-size', 'lb-size'], ['sl-review-size', 'lb-review-size']].forEach(function (pair) {
-      var sl = $(pair[0]);
-      sl.min = band ? BAND_MIN : 0.15;
-      sl.max = band ? BAND_MAX : 0.95;
-      sl.step = band ? 0.005 : 0.01;
-      sl.value = String(sliderValue());
-      $(pair[1]).textContent = band ? 'ความสูงแถบ' : 'ขนาดป้าย';
-    });
+    var sl = $('sl-review-size');
+    sl.min = band ? BAND_MIN : 0.15;
+    sl.max = band ? BAND_MAX : 0.95;
+    sl.step = band ? 0.005 : 0.01;
+    sl.value = String(sliderValue());
+    $('lb-review-size').textContent = band ? 'ความสูงแถบ' : 'ขนาดป้าย';
   }
 
   function bindModeSeg(id) {
@@ -757,239 +783,6 @@
       var btn = e.target.closest('.seg__btn');
       if (btn) setPlateMode(btn.getAttribute('data-mode'));
     });
-  }
-
-  /* ---------------- กล้องสด ---------------- */
-
-  function stopCamera() {
-    if (state.stream) {
-      state.stream.getTracks().forEach(function (t) { t.stop(); });
-    }
-    state.stream = null;
-    state.track = null;
-    $('video').srcObject = null;
-  }
-
-  /*
-   * ขอภาพ 4:3 ตามเซนเซอร์ ไม่ใช่ 16:9
-   *
-   * เดิมขอ 3840x2160 (16:9) ทั้งที่กล้องมือถือเป็น 4:3 เบราว์เซอร์เลยครอปบน-ล่างทิ้ง 25%
-   * แล้วโค้ดยังครอปเป็นจัตุรัสซ้ำอีกชั้น เหลือแนวนอนแค่ ~56% ของที่กล้องเห็นจริง
-   * ผลคือภาพเหมือนถูกซูมค้างไว้เกือบสองเท่า ต้องถอยห่างกว่าใช้แอปกล้องของเครื่อง
-   *
-   * resizeMode 'none' = ห้ามเบราว์เซอร์ครอป/ย่อให้ ขอโหมดดิบของกล้องมาเลย (Chrome รองรับ)
-   * ใช้ ideal ทุกตัวเพื่อไม่ให้ OverconstrainedError บนเครื่องที่ไม่มีโหมดนั้น
-   */
-  function cameraConstraints() {
-    return {
-      audio: false,
-      video: {
-        facingMode: { ideal: state.facing },
-        width: { ideal: 4032 },
-        height: { ideal: 3024 },
-        resizeMode: { ideal: 'none' }
-      }
-    };
-  }
-
-  function startCamera() {
-    stopCamera();
-    $('cam-error').textContent = '';
-    $('cam-format').textContent = '';
-
-    var open = navigator.mediaDevices.getUserMedia(cameraConstraints())
-      .catch(function (err) {
-        // เครื่องที่ไม่มีโหมดตามที่ขอ ให้เปิดแบบไม่ระบุอะไรเลยดีกว่าเปิดไม่ได้
-        if (err && (err.name === 'OverconstrainedError' || err.name === 'NotReadableError')) {
-          return navigator.mediaDevices.getUserMedia({
-            audio: false, video: { facingMode: { ideal: state.facing } }
-          });
-        }
-        throw err;
-      });
-
-    return open.then(function (stream) {
-      state.stream = stream;
-      state.track = stream.getVideoTracks()[0];
-      var video = $('video');
-      video.srcObject = stream;
-      return video.play().catch(function () { /* บางเบราว์เซอร์เล่นเองอยู่แล้ว */ });
-    }).then(function () {
-      setupCapabilities();
-      syncCameraFormat();
-      camPlacement.render();
-    }).catch(function (err) {
-      var msg = 'เปิดกล้องไม่ได้: ' + (err && err.name === 'NotAllowedError'
-        ? 'ยังไม่ได้อนุญาตให้เว็บใช้กล้อง'
-        : (err && err.message) || 'ไม่ทราบสาเหตุ');
-      $('cam-error').textContent = msg;
-    });
-  }
-
-  /* หาชื่อสัดส่วนที่คนอ่านรู้เรื่อง จากขนาดจริงที่กล้องส่งมา */
-  function ratioName(w, h) {
-    var r = Math.max(w, h) / Math.min(w, h);
-    var known = [[4 / 3, '4:3'], [16 / 9, '16:9'], [3 / 2, '3:2'], [1, '1:1'], [5 / 4, '5:4']];
-    for (var i = 0; i < known.length; i++) {
-      if (Math.abs(r - known[i][0]) < 0.03) return known[i][1];
-    }
-    return r.toFixed(2) + ':1';
-  }
-
-  /*
-   * โชว์ขนาด/สัดส่วนที่ได้จริง เพราะแต่ละรุ่นให้ไม่เหมือนกัน
-   * ถ้าขึ้น 16:9 แปลว่าเครื่องนั้นไม่มีโหมด 4:3 ให้เว็บใช้ — จะได้รู้ทันทีว่ามุมมองหายไปเพราะอะไร
-   */
-  function syncCameraFormat() {
-    var video = $('video');
-    var w = video.videoWidth, h = video.videoHeight;
-    var el = $('cam-format');
-    if (!w || !h) { el.textContent = ''; return; }
-    el.textContent = w + '×' + h + '  (' + ratioName(w, h) + ')';
-  }
-
-  /*
-   * ดูว่ากล้องตัวนี้ปรับซูม/แสง/ไฟฉายจากฮาร์ดแวร์ได้ไหม
-   * Safari บน iOS ยังไม่รองรับทั้งสามอย่าง จึงต้องมีทางสำรองแบบดิจิทัล
-   */
-  function setupCapabilities() {
-    var caps = {};
-    if (state.track && state.track.getCapabilities) {
-      try { caps = state.track.getCapabilities() || {}; } catch (err) { caps = {}; }
-    }
-
-    var zoomSlider = $('sl-zoom');
-    if (caps.zoom && caps.zoom.max > caps.zoom.min) {
-      state.hardwareZoom = true;
-      zoomSlider.min = caps.zoom.min;
-      zoomSlider.max = caps.zoom.max;
-      zoomSlider.step = caps.zoom.step || 0.1;
-      zoomSlider.value = caps.zoom.min;
-      $('lb-zoom').textContent = 'ซูม';
-    } else {
-      state.hardwareZoom = false;
-      zoomSlider.min = 1;
-      zoomSlider.max = 4;
-      zoomSlider.step = 0.05;
-      zoomSlider.value = 1;
-      $('lb-zoom').textContent = 'ซูม (ดิจิทัล)';
-    }
-    state.digitalZoom = 1;
-    applyZoom();
-
-    var expSlider = $('sl-exposure');
-    var range = caps.exposureCompensation;
-    if (range && range.max > range.min) {
-      state.hardwareExposure = true;
-      expSlider.min = range.min;
-      expSlider.max = range.max;
-      expSlider.step = range.step || 0.1;
-      expSlider.value = 0;
-      $('lb-exposure').textContent = 'แสง';
-    } else {
-      state.hardwareExposure = false;
-      expSlider.min = 0.6;
-      expSlider.max = 1.8;
-      expSlider.step = 0.02;
-      expSlider.value = 1;
-      $('lb-exposure').textContent = 'แสง (ดิจิทัล)';
-    }
-    state.digitalBrightness = 1;
-    applyExposure();
-
-    $('btn-torch').hidden = !caps.torch;
-    $('btn-torch').classList.remove('is-on');
-  }
-
-  function applyZoom() {
-    var value = parseFloat($('sl-zoom').value);
-    if (state.hardwareZoom && state.track) {
-      state.digitalZoom = 1;
-      $('video').style.transform = '';
-      state.track.applyConstraints({ advanced: [{ zoom: value }] }).catch(function () {});
-    } else {
-      state.digitalZoom = value;
-      $('video').style.transform = 'scale(' + value + ')';
-    }
-  }
-
-  function applyExposure() {
-    var value = parseFloat($('sl-exposure').value);
-    if (state.hardwareExposure && state.track) {
-      state.digitalBrightness = 1;
-      $('video').style.filter = '';
-      state.track.applyConstraints({ advanced: [{ exposureCompensation: value }] })
-        .catch(function () {});
-    } else {
-      state.digitalBrightness = value;
-      $('video').style.filter = 'brightness(' + value + ')';
-    }
-  }
-
-  function toggleTorch() {
-    if (!state.track) return;
-    var on = !$('btn-torch').classList.contains('is-on');
-    state.track.applyConstraints({ advanced: [{ torch: on }] }).then(function () {
-      $('btn-torch').classList.toggle('is-on', on);
-    }).catch(function () {
-      toast('เปิดไฟฉายไม่ได้บนกล้องตัวนี้');
-    });
-  }
-
-  /* ปรับความสว่างทีละพิกเซล สำหรับเบราว์เซอร์ที่ ctx.filter ใช้ไม่ได้ */
-  function brightenManually(ctx, w, h, factor) {
-    var img = ctx.getImageData(0, 0, w, h);
-    var d = img.data;
-    for (var i = 0; i < d.length; i += 4) {
-      d[i] = Math.min(255, d[i] * factor);
-      d[i + 1] = Math.min(255, d[i + 1] * factor);
-      d[i + 2] = Math.min(255, d[i + 2] * factor);
-    }
-    ctx.putImageData(img, 0, 0);
-  }
-
-  /* พื้นที่ที่กรอบเล็งครอบอยู่ — กล้องของแอปเป็นจัตุรัสตายตัว */
-  function cameraCrop() {
-    var video = $('video');
-    return cropOf(video.videoWidth, video.videoHeight, CAM_ASPECT);
-  }
-
-  /*
-   * เก็บภาพ "เต็มเฟรม" ไว้ก่อนเสมอ ตัดเฉพาะส่วนที่ซูมดิจิทัลเข้าไปจริง ๆ
-   *
-   * ไม่ตัดตามสัดส่วนตั้งแต่ตอนถ่าย เพราะถ้าตัดทิ้งเลยจะเลื่อนกรอบทีหลังไม่ได้
-   * ต้องถ่ายให้ตรงเป๊ะครั้งเดียวจบซึ่งใช้งานจริงลำบาก
-   * หน้าตรวจรูปจะตัดตามสัดส่วนให้เอง โดยเริ่มที่กลางภาพ = ตรงกับที่เห็นในกรอบเล็งพอดี
-   * แล้วผู้ใช้ค่อยลากเลื่อน/ซูมเลือกส่วนที่ต้องการได้ตามใจ
-   *
-   * ย่อลงไม่เกิน MAX_OUTPUT_SIDE ตั้งแต่ตอนถ่าย เพราะยังไงตอนบันทึกก็ไม่ได้ใหญ่กว่านี้
-   * และ canvas 12 ล้านพิกเซลคือต้นเหตุที่ iOS เคยฆ่าหน้าเว็บทิ้ง
-   */
-  function captureFrame() {
-    var video = $('video');
-    var vw = video.videoWidth, vh = video.videoHeight;
-    if (!vw || !vh) return null;
-
-    var zoom = Math.max(1, state.digitalZoom);
-    var cw = vw / zoom, ch = vh / zoom;
-    var sx = (vw - cw) / 2;
-    var sy = (vh - ch) / 2;
-    var out = fitted({ w: cw, h: ch }, MAX_OUTPUT_SIDE);
-
-    var canvas = document.createElement('canvas');
-    canvas.width = out.w;
-    canvas.height = out.h;
-    var ctx = canvas.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    var needBrighten = Math.abs(state.digitalBrightness - 1) > 0.001;
-    var canFilter = 'filter' in ctx;
-    if (needBrighten && canFilter) ctx.filter = 'brightness(' + state.digitalBrightness + ')';
-    ctx.drawImage(video, sx, sy, cw, ch, 0, 0, out.w, out.h);
-    if (needBrighten && !canFilter) brightenManually(ctx, out.w, out.h, state.digitalBrightness);
-
-    return canvas;
   }
 
   /* ---------------- หน้าตรวจรูป ---------------- */
@@ -1063,13 +856,11 @@
     reviewPlacement.layout();
   }
 
-  function openReview(source, mode) {
+  function openReview(source) {
     releasePhoto(source);
     state.photoSource = source;
     state.rotation = 0;
-    resetCrop();          // รูปใหม่เริ่มที่กลางภาพเสมอ = ตรงกับกรอบที่เห็นตอนเล็ง
-    state.source = mode;
-    $('btn-again').hidden = mode !== 'live';
+    resetCrop();          // รูปใหม่เริ่มที่กลางภาพเสมอ
 
     renderReview();
     $('review-code').textContent = state.code;
@@ -1213,7 +1004,7 @@
     }
     // เก็บรูปดิบไว้ตรง ๆ ไม่ก็อปลง canvas อีกใบ (ประหยัดหน่วยความจำครึ่งหนึ่ง)
     work.then(function (source) {
-      openReview(source, 'file');
+      openReview(source);
       autoPlaceReview();
     }).catch(function () {
       toast('เปิดรูปนี้ไม่ได้');
@@ -1230,52 +1021,18 @@
     });
   }
 
-  /* เปิดหน้ากล้องสด ใช้ทั้งตอนเริ่มถ่ายและตอนกด "ถ่ายต่อ" */
-  function openCamera() {
-    if (!state.plateCanvas) return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('เบราว์เซอร์นี้เปิดกล้องสดไม่ได้ ลองโหมดกล้องเครื่องแทน');
-      return;
-    }
-    $('cam-code').textContent = state.code;
-    showScreen('screen-camera');
-    return startCamera().then(function () {
-      if (state.plateMode === 'inside' &&
-          state.placement.xRatio === 0 && state.placement.yRatio === 0) {
-        camPlacement.resetToBottom();
-      } else {
-        camPlacement.clamp(state.placement);
-        camPlacement.render();
-      }
-    });
-  }
-
   /* ---------------- ผูกปุ่มทั้งหมด ---------------- */
 
   function init() {
-    camPlacement = new PlacementController(
-      $('cam-plate'), $('cam-frame'), $('sl-size'), $('cam-shot'), $('cam-band'),
-      cameraCrop);
     reviewPlacement = new PlacementController(
       $('review-plate'), $('review-frame'), $('sl-review-size'), $('review-shot'), $('review-band'),
       cropRect);
 
     setupCodeScreen();
-    bindModeSeg('cam-mode');
     bindModeSeg('review-mode');
     syncModeUI();
     buildAspectChips('review-aspect');
     syncAspectChips();
-
-    // ขนาดภาพจากกล้องรู้ได้หลัง metadata มาถึง และเปลี่ยนอีกทีเมื่อหมุนเครื่อง
-    ['loadedmetadata', 'resize'].forEach(function (ev) {
-      $('video').addEventListener(ev, function () {
-        syncCameraFormat();
-        camPlacement.render();
-      });
-    });
-
-    $('btn-live').addEventListener('click', openCamera);
 
     $('btn-native').addEventListener('click', function () { $('file-native').click(); });
     $('btn-pick').addEventListener('click', function () { $('file-pick').click(); });
@@ -1288,37 +1045,6 @@
       e.target.value = '';
     });
 
-    $('btn-cam-back').addEventListener('click', function () {
-      stopCamera();
-      showScreen('screen-code');
-      refreshPreview();   // ดึงรูปป้ายกลับมาไว้ในกล่องตัวอย่าง
-    });
-    $('btn-flip').addEventListener('click', function () {
-      state.facing = state.facing === 'environment' ? 'user' : 'environment';
-      startCamera();
-    });
-    $('sl-zoom').addEventListener('input', applyZoom);
-    $('sl-exposure').addEventListener('input', applyExposure);
-    $('btn-torch').addEventListener('click', toggleTorch);
-    $('btn-reset-plate').addEventListener('click', function () { camPlacement.resetToBottom(); });
-
-    $('btn-shutter').addEventListener('click', function () {
-      var shot = captureFrame();
-      if (!shot) { toast('กล้องยังไม่พร้อม ลองอีกครั้ง'); return; }
-      stopCamera();
-      // กล้องเล็งเป็นจัตุรัส หน้าตรวจรูปจึงต้องเริ่มที่จัตุรัสด้วย จะได้ตรงกับที่เห็นตอนเล็ง
-      state.aspect = CAM_ASPECT;
-      saveStore({ aspect: CAM_ASPECT });
-      syncAspectChips();
-      openReview(shot, 'live');
-    });
-
-    // ถ่ายรูปถัดไปได้ทันทีโดยไม่ต้องย้อนกลับไปหน้ากรอกรหัส
-    $('btn-again').addEventListener('click', function () {
-      releasePhoto();
-      openCamera();
-    });
-
     $('btn-rotate').addEventListener('click', rotatePhoto);
     new CropController($('review-frame'));
     $('btn-crop-reset').addEventListener('click', function () {
@@ -1329,29 +1055,13 @@
 
     $('btn-review-back').addEventListener('click', function () {
       releasePhoto();
-      if (state.source === 'live') {
-        openCamera();          // มาจากกล้องสด ย้อนกลับไปที่กล้อง ไม่ใช่หน้าแรก
-      } else {
-        showScreen('screen-code');
-        refreshPreview();
-      }
+      showScreen('screen-code');
+      refreshPreview();       // ดึงรูปป้ายกลับมาไว้ในกล่องตัวอย่าง
     });
 
-    // แตะรหัสบนแถบกล้องเพื่อกลับไปแก้เลขงาน
-    $('cam-code').addEventListener('click', function () {
-      stopCamera();
-      showScreen('screen-code');
-      refreshPreview();
-    });
     $('btn-auto').addEventListener('click', autoPlaceReview);
     $('btn-save').addEventListener('click', saveResult);
     $('btn-reset').addEventListener('click', hardReset);
-
-    // กล้องหยุดเองเมื่อสลับไปแอปอื่น กลับมาแล้วต้องเปิดใหม่
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) return;
-      if ($('screen-camera').classList.contains('is-active') && !state.stream) startCamera();
-    });
 
     $('build-id').textContent = 'รุ่น ' + BUILD;
     $('btn-update').addEventListener('click', checkUpdate);

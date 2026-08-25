@@ -16,7 +16,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preload" href="assets/fonts/anuphan-thai.woff2" as="font" type="font/woff2" crossorigin>
 <!-- ?v= ต้องตรงกับ BUILD ใน sw.js เสมอ ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างโค้ดเก่า -->
-<link rel="stylesheet" href="style.css?v=20260810g">
+<link rel="stylesheet" href="style.css?v=20260825a">
 <script>
 /*
  * ตัวกู้โค้ดค้าง — ต้องอยู่ในไฟล์นี้เท่านั้น ห้ามย้ายไป app.js
@@ -29,7 +29,7 @@
  * ถ้าโค้ดที่โหลดมาเป็นคนละรุ่นกับหน้านี้ ให้ล้างแคชแล้วโหลดใหม่ให้เอง หนึ่งครั้งต่อหนึ่งรอบเปิด
  */
 (function () {
-  var BUILD = '20260810g';
+  var BUILD = '20260825a';
   window.__BUILD = BUILD;
 
   window.addEventListener('load', function () {
@@ -66,7 +66,7 @@
   <div class="sheet">
     <header class="head">
       <h1>ป้ายเลขที่งาน</h1>
-      <p class="lead">พิมพ์เลขงาน แล้วป้ายจะไปลอยอยู่ในกล้องให้เห็นตอนถ่าย</p>
+      <p class="lead">พิมพ์เลขงาน ถ่ายรูป แล้ววางป้ายลงบนภาพก่อนบันทึก</p>
     </header>
 
     <label class="code-field">
@@ -80,15 +80,14 @@
     <div id="plate-preview" class="plate-preview"></div>
 
     <div class="actions">
-      <button id="btn-live" type="button" class="btn btn--primary">
-        เปิดกล้อง
-        <small>เห็นป้ายสด วางตำแหน่งได้ตั้งแต่ตอนเล็ง</small>
+      <button id="btn-native" type="button" class="btn btn--primary">
+        ถ่ายรูป
+        <small>ใช้กล้องของเครื่องเต็มคุณภาพ แล้วค่อยวางป้าย</small>
       </button>
-      <button id="btn-native" type="button" class="btn btn--soft">
-        ถ่ายด้วยกล้องเครื่อง
-        <small>ภาพคมกว่า แล้วค่อยวางป้าย</small>
+      <button id="btn-pick" type="button" class="btn btn--soft">
+        เลือกรูปที่มีอยู่แล้ว
+        <small>จากอัลบั้มหรือโฟลเดอร์ในเครื่อง</small>
       </button>
-      <button id="btn-pick" type="button" class="btn btn--ghost">เลือกรูปที่มีอยู่แล้ว</button>
     </div>
 
     <input id="file-native" type="file" accept="image/*" capture="environment" hidden>
@@ -103,54 +102,7 @@
   </div>
 </section>
 
-<!-- ---------- หน้า 2: กล้องสด ---------- -->
-<section id="screen-camera" class="screen screen--dark">
-  <header class="bar">
-    <button id="btn-cam-back" type="button" class="icon-btn" aria-label="ย้อนกลับ">‹</button>
-    <button id="cam-code" type="button" class="bar__code" title="แตะเพื่อแก้เลขงาน"></button>
-    <button id="btn-flip" type="button" class="icon-btn" aria-label="สลับกล้อง">⟳</button>
-  </header>
-
-  <div class="stage">
-    <div id="cam-shot" class="shot">
-      <div id="cam-frame" class="frame">
-        <video id="video" playsinline autoplay muted></video>
-        <div id="cam-plate" class="plate-layer" hidden></div>
-        <div class="frame__grid" aria-hidden="true"></div>
-      </div>
-      <div id="cam-band" class="band" hidden></div>
-    </div>
-    <p id="cam-error" class="error"></p>
-    <p id="cam-format" class="hint"></p>
-  </div>
-
-  <div class="controls">
-    <div id="cam-mode" class="seg" role="group" aria-label="ตำแหน่งป้าย">
-      <button type="button" class="seg__btn" data-mode="band">ป้ายใต้ภาพ</button>
-      <button type="button" class="seg__btn" data-mode="inside">ป้ายในภาพ</button>
-    </div>
-    <label class="slider">
-      <span id="lb-size">ขนาดป้าย</span>
-      <input id="sl-size" type="range" min="0.15" max="0.95" step="0.01" value="0.55">
-    </label>
-    <label class="slider">
-      <span id="lb-zoom">ซูม</span>
-      <input id="sl-zoom" type="range" min="1" max="4" step="0.05" value="1">
-    </label>
-    <label class="slider">
-      <span id="lb-exposure">แสง</span>
-      <input id="sl-exposure" type="range" min="0.6" max="1.8" step="0.02" value="1">
-    </label>
-  </div>
-
-  <div class="shutter-row">
-    <button id="btn-reset-plate" type="button" class="chip">จัดตำแหน่งป้าย</button>
-    <button id="btn-shutter" type="button" class="shutter" aria-label="ถ่ายรูป"></button>
-    <button id="btn-torch" type="button" class="chip" hidden>ไฟฉาย</button>
-  </div>
-</section>
-
-<!-- ---------- หน้า 3: ตรวจรูป / ตั้งชื่อ / บันทึก ---------- -->
+<!-- ---------- หน้า 2: ตรวจรูป / ตั้งชื่อ / บันทึก ---------- -->
 <section id="screen-review" class="screen screen--dark">
   <header class="bar">
     <button id="btn-review-back" type="button" class="icon-btn" aria-label="ย้อนกลับ">‹</button>
@@ -196,7 +148,6 @@
     <button id="btn-rotate" type="button" class="btn btn--ghost">หมุน 90°</button>
     <button id="btn-crop-reset" type="button" class="btn btn--ghost">กรอบกลาง</button>
     <button id="btn-auto" type="button" class="btn btn--ghost">จัดตำแหน่ง</button>
-    <button id="btn-again" type="button" class="btn btn--ghost" hidden>ถ่ายต่อ</button>
   </div>
   <div class="actions actions--row actions--bottom">
     <button id="btn-save" type="button" class="btn btn--primary">บันทึกลงอัลบั้ม</button>
@@ -212,8 +163,8 @@
   <button id="btn-reset" type="button" class="btn btn--primary">ล้างข้อมูลแอปแล้วเริ่มใหม่</button>
 </div>
 
-<script src="js/plate.js?v=20260810g"></script>
-<script src="js/autoplace.js?v=20260810g"></script>
-<script src="js/app.js?v=20260810g"></script>
+<script src="js/plate.js?v=20260825a"></script>
+<script src="js/autoplace.js?v=20260825a"></script>
+<script src="js/app.js?v=20260825a"></script>
 </body>
 </html>

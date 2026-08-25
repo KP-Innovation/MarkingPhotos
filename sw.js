@@ -5,7 +5,7 @@
  * ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างอยู่กับโค้ดเก่าแบบไม่มีทางรู้ตัว
  * (บน iOS แอปที่เปิดจากหน้าโฮมแทบไม่เคยเช็ก sw.js ตัวใหม่ให้เลย)
  */
-var BUILD = '20260810g';
+var BUILD = '20260825a';
 var CACHE = 'markingphotos-' + BUILD;
 
 var GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')

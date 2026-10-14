@@ -25,7 +25,7 @@
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20260825b';
+  var BUILD = '20261014a';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;
@@ -50,7 +50,9 @@
     { id: '16:9', label: '16:9', long: 16, short: 9 }
   ];
 
-  var CROP_MAX_ZOOM = 6;         // ซูมกรอบตัดเข้าได้สูงสุดกี่เท่า
+  var CROP_MAX_ZOOM = 10;        // ซูมกรอบตัดเข้าได้สูงสุดกี่เท่า
+  var CROP_WHEEL_RATE = 0.0015;  // ล้อเมาส์บนคอม: 1 คลิก ≈ 15% · กด Shift ค้าง = ละเอียดขึ้น
+  var CROP_WHEEL_RATE_FINE = 0.0004;
 
   var BAND_FILL = 0.62;          // ป้ายสูงกี่ส่วนของแถบ ที่เหลือเป็นขอบบน-ล่างเท่า ๆ กัน
   var BAND_MIN = 0.06;
@@ -389,7 +391,32 @@
     ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(function (ev) {
       frameEl.addEventListener(ev, function (e) { self.handle(ev, e); });
     });
+    // บนคอมไม่มีการหยิกสองนิ้ว ใช้ล้อเมาส์ซูมแทน โดยยึดจุดใต้เมาส์ไว้ที่เดิม
+    frameEl.addEventListener('wheel', function (e) { self.wheel(e); }, { passive: false });
   }
+
+  CropController.prototype.wheel = function (e) {
+    if (!state.photoSource) return;
+    e.preventDefault();
+    var s = sourceSize();
+    var before = cropRect();
+    var box = this.frame.getBoundingClientRect();
+    if (!box.width || !box.height || !s.w) return;
+    var fx = (e.clientX - box.left) / box.width;
+    var fy = (e.clientY - box.top) / box.height;
+    var ix = before.x + fx * before.w;           // จุดบนรูปที่อยู่ใต้เมาส์
+    var iy = before.y + fy * before.h;
+    var dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    var rate = e.ctrlKey ? 0.01 : (e.shiftKey ? CROP_WHEEL_RATE_FINE : CROP_WHEEL_RATE);
+    state.crop.scale *= Math.exp(-dy * rate);
+    clampCrop();
+    var base = cropOf(s.w, s.h);
+    var w = base.w / state.crop.scale, h = base.h / state.crop.scale;
+    state.crop.cx = (ix - fx * w + w / 2) / s.w;
+    state.crop.cy = (iy - fy * h + h / 2) / s.h;
+    clampCrop();
+    scheduleCropRender();
+  };
 
   CropController.prototype.handle = function (type, e) {
     if (!state.photoSource) return;
@@ -890,6 +917,45 @@
     });
   }
 
+  /* ---------------- ลบวัตถุ (เฉพาะบนคอม) ---------------- */
+
+  /* สำเนารูปเต็มความละเอียดที่หมุนแล้ว แต่ยังไม่ตัดกรอบ — ให้หน้าลบวัตถุแก้บนพิกัดเดียวกับกรอบตัด */
+  function rotatedCopy() {
+    var s = sourceSize();
+    var c = document.createElement('canvas');
+    c.width = s.w;
+    c.height = s.h;
+    var ctx = c.getContext('2d');
+    var rot = state.rotation;
+    if (rot === 90) { ctx.translate(s.w, 0); ctx.rotate(Math.PI / 2); }
+    else if (rot === 180) { ctx.translate(s.w, s.h); ctx.rotate(Math.PI); }
+    else if (rot === 270) { ctx.translate(0, s.h); ctx.rotate(-Math.PI / 2); }
+    ctx.drawImage(state.photoSource, 0, 0);
+    return c;
+  }
+
+  /*
+   * รูปที่ลบวัตถุแล้วมาแทนรูปดิบเลย การหมุนจึงถูกอบลงไปในรูปแล้ว ต้องตั้งกลับเป็น 0
+   * กรอบตัดเก็บเป็นสัดส่วนของรูปหลังหมุนอยู่แล้ว จึงอยู่ตำแหน่งเดิมพอดี ไม่ต้องแปลง
+   */
+  function useRetouched(canvas) {
+    releasePhoto(canvas);
+    state.photoSource = canvas;
+    state.rotation = 0;
+    clampCrop();
+    renderReview();
+    requestAnimationFrame(function () {
+      reviewPlacement.clamp(state.placement);
+      reviewPlacement.render();
+    });
+    toast('ใช้รูปที่ลบวัตถุแล้ว');
+  }
+
+  function openRetouch() {
+    if (!state.photoSource || !window.Retouch) return;
+    window.Retouch.start(rotatedCopy, useRetouched);
+  }
+
   function autoPlaceReview() {
     var display = $('review-canvas');
     if (state.plateMode === 'band') return;   // ในโหมดแถบป้ายไม่ได้ทับภาพ ไม่ต้องหาที่ว่าง
@@ -1219,6 +1285,14 @@
     });
 
     $('btn-auto').addEventListener('click', autoPlaceReview);
+
+    // ปุ่มลบวัตถุโผล่เฉพาะบนคอม — มือถือเรียกตัวช่วยบนคอมไม่ได้ ซ่อนไว้ไม่ให้หน้าจอเปลี่ยน
+    if (window.Retouch && window.Retouch.supported()) {
+      $('btn-retouch').hidden = false;
+      $('btn-retouch').addEventListener('click', openRetouch);
+      document.querySelector('#screen-review .hint').textContent =
+        'ลากรูปเพื่อเลื่อนกรอบ · หมุนล้อเมาส์เพื่อซูม (กด Shift ค้าง = ละเอียด)';
+    }
     $('btn-save').addEventListener('click', saveResult);
 
     syncSaveDirUI();

@@ -5,7 +5,7 @@
  * ไม่งั้นเครื่องที่ติดตั้งแอปไว้จะค้างอยู่กับโค้ดเก่าแบบไม่มีทางรู้ตัว
  * (บน iOS แอปที่เปิดจากหน้าโฮมแทบไม่เคยเช็ก sw.js ตัวใหม่ให้เลย)
  */
-var BUILD = '20260825b';
+var BUILD = '20261014a';
 var CACHE = 'markingphotos-' + BUILD;
 
 var GLYPHS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
@@ -19,6 +19,7 @@ var SHELL = [
   'style.css?v=' + BUILD,
   'js/plate.js?v=' + BUILD,
   'js/autoplace.js?v=' + BUILD,
+  'js/retouch.js?v=' + BUILD,
   'js/app.js?v=' + BUILD,
   'assets/metrics.json',
   'assets/fonts/anuphan-thai.woff2',
@@ -67,6 +68,11 @@ function offlineFallback() {
 self.addEventListener('fetch', function (event) {
   var req = event.request;
   if (req.method !== 'GET') return;
+
+  // ตัวติดตั้ง LaMa (lama/) ต้องได้ตัวล่าสุดจากเว็บเสมอ และไม่มีประโยชน์ที่จะเก็บไว้ในแคชของแอป
+  // คำขอไปหาตัวช่วยใน 127.0.0.1 ก็ปล่อยผ่านไปตรง ๆ เช่นกัน
+  var url = new URL(req.url);
+  if (url.origin !== self.location.origin || url.pathname.indexOf('/lama/') === 0) return;
 
   /*
    * ตัวหน้าเว็บเอง: เอาจากเน็ตก่อนเสมอ ถ้าไม่ได้ค่อยใช้ของในแคช

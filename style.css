@@ -582,6 +582,8 @@ h1 { margin: 4px 0 6px; font-size: 25px; font-weight: 700; letter-spacing: -.2px
 }
 .rt .slider .rt-chip { flex: none; padding: 5px 11px; font-size: 12.5px; }
 .rt .btn:disabled { opacity: .35; }
+.rt-tools { display: flex; gap: 6px; flex: none; }
+.rt-tools .chip { padding: 7px 12px; font-size: 13px; }
 .rt .controls { padding-bottom: 10px; }
 
 /* กล่องถามติดตั้งตัวช่วย */

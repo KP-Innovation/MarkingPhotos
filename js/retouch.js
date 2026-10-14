@@ -15,6 +15,16 @@
   var HELPER = 'http://127.0.0.1:5188';
   var SETUP_URL = 'lama/setup.cmd';
   var SETUP_NAME = 'MarkingPhotos-LaMa-Setup.cmd';
+  var MIN_HELPER = '1.1.0';     // ตัวช่วยเก่ากว่านี้ ขอให้เปิดตัวติดตั้งอีกรอบเพื่ออัปเดต (1.1 = เนื้อภาพคมแบบ Content-Aware)
+
+  function older(v, want) {
+    var a = String(v || '0').split('.'), b = want.split('.');
+    for (var i = 0; i < b.length; i++) {
+      var x = parseInt(a[i] || '0', 10), y = parseInt(b[i], 10);
+      if (x !== y) return x < y;
+    }
+    return false;
+  }
 
   var ZOOM_MAX = 16;            // ซูมเข้าได้สูงสุด 1600% ของพิกเซลจริง
   var ZOOM_STEPS = 1000;        // ความละเอียดของแถบซูม (สเกล log — ขยับทีละไม่ถึง 1%)
@@ -112,26 +122,31 @@
     a.remove();
   }
 
-  function offerInstall(onReady) {
+  function offerInstall(onReady, oldVersion) {
     if (!isWindows()) {
       showModal('ลบวัตถุใช้ได้เฉพาะคอม Windows', [
         'ปุ่มนี้ใช้ AI ที่ต้องติดตั้งลงบนคอมเครื่องนั้นเอง ตอนนี้ทำตัวติดตั้งไว้ให้เฉพาะ Windows'
       ], [{ label: 'ปิด', primary: true, onClick: closeModal }]);
       return;
     }
-    showModal('ติดตั้งตัวลบวัตถุ (LaMa) บนเครื่องนี้ไหม?', [
-      'ปุ่มลบวัตถุใช้ AI ตัวเดียวกับ Dashboard ซึ่งต้องรันบนคอมเครื่องนี้เอง ติดตั้งครั้งเดียว ' +
-        'ใช้เวลาราว 5–15 นาที (ดาวน์โหลดประมาณ 1 GB ถ้าเครื่องยังไม่มี Python + PyTorch)',
+    var upd = !!oldVersion;
+    showModal(upd ? 'มีตัวลบวัตถุรุ่นใหม่ (ลบได้คมขึ้น) อัปเดตไหม?' : 'ติดตั้งตัวลบวัตถุ (LaMa) บนเครื่องนี้ไหม?', [
+      upd
+        ? 'เครื่องนี้ใช้ตัวช่วยรุ่น ' + oldVersion + ' อยู่ รุ่นใหม่เติมพื้นหลังด้วยเนื้อภาพจริงรอบ ๆ วัตถุ ' +
+          'ไม่เบลอเหมือนเดิม อัปเดตใช้เวลาไม่ถึงนาที (ไม่ต้องโหลดโมเดลใหม่)'
+        : 'ปุ่มลบวัตถุใช้ AI ตัวเดียวกับ Dashboard ซึ่งต้องรันบนคอมเครื่องนี้เอง ติดตั้งครั้งเดียว ' +
+          'ใช้เวลาราว 5–15 นาที (ดาวน์โหลดประมาณ 1 GB ถ้าเครื่องยังไม่มี Python + PyTorch)',
       [
-        'กด "ติดตั้ง" แล้วเปิดไฟล์ ' + SETUP_NAME + ' ที่ดาวน์โหลดมา',
+        'กด "' + (upd ? 'อัปเดต' : 'ติดตั้ง') + '" แล้วเปิดไฟล์ ' + SETUP_NAME + ' ที่ดาวน์โหลดมา',
         'ถ้า Windows ขึ้นกรอบสีฟ้าเตือน ให้กด "ข้อมูลเพิ่มเติม" แล้ว "เรียกใช้ต่อไป"',
         'รอหน้าต่างดำทำงานจนขึ้นว่าเสร็จ หน้านี้จะเปิดหน้าลบวัตถุให้เอง'
       ],
-      'ถ้าเคยติดตั้งแล้ว แค่เปิดไฟล์เดิมอีกครั้ง ตัวช่วยจะกลับมาทำงานในไม่กี่วินาที'
-    ], [
-      { label: 'ไม่ใช่ตอนนี้', onClick: closeModal },
+      upd ? '' : 'ถ้าเคยติดตั้งแล้ว แค่เปิดไฟล์เดิมอีกครั้ง ตัวช่วยจะกลับมาทำงานในไม่กี่วินาที'
+    ].filter(Boolean), [
+      upd ? { label: 'ใช้รุ่นเดิมไปก่อน', onClick: function () { closeModal(); onReady(); } }
+        : { label: 'ไม่ใช่ตอนนี้', onClick: closeModal },
       {
-        label: 'ติดตั้ง', primary: true,
+        label: upd ? 'อัปเดต' : 'ติดตั้ง', primary: true,
         onClick: function (btn, wait) {
           downloadSetup();
           btn.disabled = true;
@@ -196,13 +211,18 @@
         '<button type="button" class="icon-btn" data-act="cancel" aria-label="ปิด">✕</button>' +
         '<span class="bar__code bar__code--plain">ลบวัตถุ</span>' +
         '<span class="bar__spacer"></span>' +
+        // เครื่องมือแบบ Photoshop: แปรง (B) กับมือเลื่อนภาพ (H) — โหมดมือคลิกซ้าย/นิ้วเดียวลากภาพได้เลย
+        '<div class="rt-tools" role="group" aria-label="เครื่องมือ">' +
+          '<button type="button" class="chip rt-tool is-on" data-act="tool-brush" title="ระบาย (B)">🖌 ระบาย</button>' +
+          '<button type="button" class="chip rt-tool" data-act="tool-hand" title="เลื่อนภาพ (H)">✋ เลื่อนภาพ</button>' +
+        '</div>' +
       '</header>' +
       '<div class="rt-stage">' +
         '<canvas class="rt-view"></canvas>' +
         '<div class="rt-cursor" hidden></div>' +
         '<div class="rt-busy" hidden><span>กำลังลบและเติมพื้นหลัง...</span></div>' +
       '</div>' +
-      '<p class="hint rt-hint">ระบายทับสิ่งที่จะลบ · ล้อเมาส์ = ซูม (Shift = ละเอียด) · คลิกขวาลาก หรือกดเว้นวรรคค้างแล้วลาก = เลื่อนภาพ</p>' +
+      '<p class="hint rt-hint">ระบายทับสิ่งที่จะลบ · ล้อเมาส์ = ซูม (Shift = ละเอียด) · กด ✋ เลื่อนภาพ แล้วลาก (หรือคลิกขวาลาก / กดเว้นวรรคค้างแล้วลาก)</p>' +
       '<p class="rt-msg"></p>' +
       '<div class="controls">' +
         '<label class="slider"><span>ขนาดแปรง</span>' +
@@ -252,6 +272,7 @@
       pointers: new Map(),
       pan: null, pinch: null,
       space: false,
+      tool: 'brush',       // 'brush' = ระบาย · 'hand' = ลากเลื่อนภาพ
       busy: false,
       confirmCancel: false,
       raf: 0
@@ -300,6 +321,17 @@
     q('done').disabled = E.busy;
     E.busyEl.hidden = !E.busy;
   }
+
+  function setTool(t) {
+    E.tool = t;
+    E.root.querySelectorAll('.rt-tool').forEach(function (b) {
+      b.classList.toggle('is-on', b.getAttribute('data-act') === 'tool-' + t);
+    });
+    E.view.style.cursor = t === 'hand' ? 'grab' : '';
+    if (t === 'hand') E.cursor.hidden = true;
+  }
+
+  function handMode() { return E.space || E.tool === 'hand'; }
 
   function syncBrush() {
     E.root.querySelector('.rt-brush-val').textContent = E.brush + ' px';
@@ -457,7 +489,7 @@
   }
 
   function showCursor(p) {
-    if (!p || E.pan || E.space || E.busy) { E.cursor.hidden = true; return; }
+    if (!p || E.pan || handMode() || E.busy) { E.cursor.hidden = true; return; }
     E.cursor.hidden = false;
     var d = E.brush;
     E.cursor.style.width = d + 'px';
@@ -504,7 +536,7 @@
       E.pan = null;
       return;
     }
-    if (e.button === 1 || e.button === 2 || E.space) {
+    if (e.button === 1 || e.button === 2 || handMode()) {
       E.pan = { sx: e.clientX, sy: e.clientY, ox: E.ox, oy: E.oy };
       E.view.style.cursor = 'grabbing';
       showCursor(null);
@@ -552,7 +584,7 @@
     try { E.view.releasePointerCapture(e.pointerId); } catch (err) { /* ไม่เป็นไร */ }
     if (E.pointers.size < 2) E.pinch = null;
     if (E.pointers.size === 0) {
-      if (E.pan) { E.pan = null; E.view.style.cursor = E.space ? 'grab' : ''; }
+      if (E.pan) { E.pan = null; E.view.style.cursor = handMode() ? 'grab' : ''; }
       endStroke();
     }
   }
@@ -576,6 +608,8 @@
       e.preventDefault();
     } else if (k === '+' || k === '=') { zoomCenter(E.z * ZOOM_BUTTON); e.preventDefault(); }
     else if (k === '-' || k === '_') { zoomCenter(E.z / ZOOM_BUTTON); e.preventDefault(); }
+    else if (k === 'h' || k === 'H') { setTool('hand'); e.preventDefault(); }
+    else if (k === 'b' || k === 'B') { setTool('brush'); e.preventDefault(); }
     else if (k === '0') { fit(); e.preventDefault(); }
     else if (k === '1') { zoomCenter(1); e.preventDefault(); }
     else if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'Z')) { undo(); e.preventDefault(); }
@@ -586,7 +620,7 @@
   function onKeyUp(e) {
     if (E && e.key === ' ') {
       E.space = false;
-      if (!E.pan) E.view.style.cursor = '';
+      if (!E.pan) E.view.style.cursor = handMode() ? 'grab' : '';
     }
   }
 
@@ -693,7 +727,8 @@
         E.hist.push({ k: 'fill', x: R.x, y: R.y, before: before, strokes: E.strokes });
         E.strokes = [];
         redrawMask();
-        var how = res.method === 'lama' ? 'AI เติมพื้นหลัง' : 'วิธีสำรอง (ไม่ใช่ AI)';
+        var how = res.method === 'lama+patch' ? 'AI + เนื้อภาพจริงรอบ ๆ'
+          : res.method === 'lama' ? 'AI เติมพื้นหลัง' : 'วิธีสำรอง (ไม่ใช่ AI)';
         say('✓ ลบแล้ว (' + how + ', ' + ((Date.now() - t0) / 1000).toFixed(1) + ' วิ) — ระบายต่อได้ หรือกด "ใช้รูปนี้"');
       })
       .catch(function (err) {
@@ -756,6 +791,8 @@
       else if (a === 'apply') apply();
       else if (a === 'zin') zoomCenter(E.z * ZOOM_BUTTON);
       else if (a === 'zout') zoomCenter(E.z / ZOOM_BUTTON);
+      else if (a === 'tool-brush') setTool('brush');
+      else if (a === 'tool-hand') setTool('hand');
       else if (a === 'fit') fit();
       else if (a === 'actual') zoomCenter(1);
     });

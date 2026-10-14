@@ -25,7 +25,7 @@
   var JPEG_QUALITY = 0.95;
 
   /* ต้องตรงกับ BUILD ใน sw.js และ ?v= ใน index.html — โชว์บนหน้าจอไว้เช็กว่าเครื่องได้ของใหม่แล้ว */
-  var BUILD = '20261014a';
+  var BUILD = '20261014b';
 
   // ให้ตัวกู้โค้ดค้างใน index.html รู้ว่าไฟล์นี้เป็นรุ่นไหน (ดูคำอธิบายในไฟล์นั้น)
   window.MarkingPhotosBuild = BUILD;

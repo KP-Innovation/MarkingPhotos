@@ -25,7 +25,7 @@ import urllib.request
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 PORT = int(os.environ.get('MP_LAMA_PORT', '5188'))
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, 'helper.log')
@@ -179,6 +179,178 @@ def _match_grain(orig_crop, filled_crop, cmask):
         return filled_crop
 
 
+# ─────────────── เติมเนื้อภาพให้คม (แบบ Content-Aware Fill) ───────────────
+#
+# LaMa เดาโครงและสีได้ดี แต่รูใหญ่ ๆ เนื้อภาพจะเนียนเกิน ดูเหมือนเบลอ
+# Photoshop / Affinity ใช้ PatchMatch: หาแผ่นภาพเล็ก ๆ จากรอบ ๆ ที่หน้าตาเหมือนที่ควรเป็น แล้วก๊อปมาวาง
+# ตรงนี้ทำแบบผสม — ใช้ผล LaMa เป็น "แบบ" ให้ PatchMatch หาแผ่นจริงจากรูป
+# แล้วเอาสี/แสงระดับกว้างจาก LaMa + รายละเอียดเนื้อภาพจากแผ่นจริง จึงได้ทั้งโครงถูกและเนื้อคม
+
+_PM_R = 3                    # รัศมีแผ่นภาพ (7×7)
+_PM_TAPS = [(dy, dx) for dy in (-3, -1, 1, 3) for dx in (-3, -1, 1, 3)] + [(0, 0)]
+_PM_MAX_TARGETS = 160000     # พิกเซลในรูเกินนี้ หาคู่ที่ความละเอียดต่ำลงแล้วค่อยขยายกลับ
+
+
+def _soft(img, hole, sigma):
+    """เบลอแบบไม่ดูดสีจากในรูเข้ามา (normalized convolution) — ใช้ทำภาพเทียบกับผล LaMa ที่เนียนกว่าของจริง"""
+    import cv2
+    import numpy as np
+    k = (~hole).astype(np.float32)
+    num = cv2.GaussianBlur(img.astype(np.float32) * k[..., None], (0, 0), sigma)
+    den = cv2.GaussianBlur(k, (0, 0), sigma)[..., None]
+    return num / np.maximum(den, 1e-3)
+
+
+def _patchmatch(guide, src, hole, iters=5, rng=None):
+    """หา source ของทุกพิกเซลในรู: คืน (ty, tx, sy, sx) หน่วยพิกเซล หรือ None ถ้าทำไม่ได้
+
+    guide กับ src ต้องผ่านการเบลอระดับเดียวกันมาแล้ว ไม่งั้นจะเลือกแต่แผ่นเรียบ ๆ (ผล LaMa เนียนกว่าของจริง)"""
+    import cv2
+    import numpy as np
+    rng = rng or np.random.default_rng(1)
+    r = _PM_R
+    H, W = hole.shape
+    G = cv2.copyMakeBorder(np.ascontiguousarray(guide, np.float32), r, r, r, r, cv2.BORDER_REFLECT)
+    S = cv2.copyMakeBorder(np.ascontiguousarray(src, np.float32), r, r, r, r, cv2.BORDER_REFLECT)
+    Hp, Wp = H + 2 * r, W + 2 * r
+    holep = cv2.copyMakeBorder(hole.astype(np.uint8), r, r, r, r, cv2.BORDER_CONSTANT, value=1)
+    # แหล่งที่ใช้ได้ = แผ่นทั้งแผ่นอยู่นอกรู (และไม่ล้นขอบรูป)
+    valid = cv2.erode((holep == 0).astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+    vy, vx = np.nonzero(valid)
+    if len(vy) < 50:
+        return None
+    ty, tx = np.nonzero(holep[r:r + H, r:r + W] > 0)
+    ty = ty + r
+    tx = tx + r
+    N = len(ty)
+    if N == 0:
+        return None
+
+    Gf = G.reshape(-1, 3)
+    Sf = S.reshape(-1, 3)
+    vflat = valid.reshape(-1)
+    taps = np.array([dy * Wp + dx for dy, dx in _PM_TAPS], np.int64)
+    tflat = ty.astype(np.int64) * Wp + tx
+    gpatch = Gf[tflat[:, None] + taps[None, :]]                   # N×T×3 คงที่ตลอด
+
+    def cost(sflat):
+        ok = vflat[sflat]
+        d = np.full(len(sflat), np.inf, np.float32)
+        if ok.any():
+            idx = np.nonzero(ok)[0]
+            diff = gpatch[idx] - Sf[sflat[idx][:, None] + taps[None, :]]
+            d[idx] = np.einsum('ntc,ntc->n', diff, diff)
+        return d
+
+    pick = rng.integers(0, len(vy), N)
+    sy = vy[pick].astype(np.int64)
+    sx = vx[pick].astype(np.int64)
+    best = cost(sy * Wp + sx)
+
+    # ตาราง พิกเซล → ลำดับในรู ใช้ตอนส่งต่อคำตอบจากเพื่อนบ้าน
+    where = np.full(Hp * Wp, -1, np.int64)
+    where[tflat] = np.arange(N)
+
+    def try_cand(cy, cx):
+        nonlocal best
+        cy = np.clip(cy, r, Hp - r - 1)
+        cx = np.clip(cx, r, Wp - r - 1)
+        d = cost(cy * Wp + cx)
+        better = d < best
+        sy[better] = cy[better]
+        sx[better] = cx[better]
+        best = np.where(better, d, best)
+
+    for it in range(iters):
+        step = 1 << max(0, 3 - it)                          # กระโดดไกลก่อนแล้วค่อยถี่ (jump flood)
+        for s in sorted({step, 1}, reverse=True):
+            for dy, dx in ((0, s), (0, -s), (s, 0), (-s, 0)):
+                nb = where[(ty - dy) * Wp + (tx - dx)]
+                has = nb >= 0
+                if not has.any():
+                    continue
+                cy = sy.copy()
+                cx = sx.copy()
+                cy[has] = sy[nb[has]] + dy
+                cx[has] = sx[nb[has]] + dx
+                try_cand(cy, cx)
+        rad = max(Hp, Wp)
+        while rad >= 1:                                       # สุ่มค้นรอบคำตอบเดิม รัศมีหดลงครึ่งหนึ่งทุกรอบ
+            try_cand(sy + rng.integers(-rad, rad + 1, N), sx + rng.integers(-rad, rad + 1, N))
+            rad //= 2
+    return ty - r, tx - r, sy - r, sx - r
+
+
+def _texture_fill(orig, lama, hole, sigma=2.0):
+    """orig/lama uint8 BGR ขนาดเดียวกัน, hole bool → ผลที่เนื้อภาพคม หรือ None
+
+    1) เบลอทั้งผล LaMa และรูปจริงระดับเดียวกัน แล้วหาแผ่นที่เข้ากันด้วย PatchMatch
+       (เทียบกันที่ความละเอียดเดียวกัน จะไม่เลือกแต่พื้นเรียบ ๆ)
+    2) ก๊อปพิกเซลคม ๆ จากแผ่นที่เจอ
+    3) แสง/สีระดับกว้างยึด LaMa รายละเอียดเอาจากแผ่นจริง — รอยต่อจึงไม่เพี้ยนสี
+    """
+    import cv2
+    import numpy as np
+    H, W = hole.shape
+    N = int(hole.sum())
+    if N < 30:
+        return None
+    o32 = orig.astype(np.float32)
+    l32 = lama.astype(np.float32)
+    comp = o32.copy()
+    comp[hole] = l32[hole]
+    g_lp = cv2.GaussianBlur(comp, (0, 0), sigma)            # แบบ: รูเติมด้วย LaMa แล้วเบลอ
+    s_lp = _soft(o32, hole, sigma)                           # แหล่ง: รูปจริงเบลอเท่ากัน (ไม่ดูดสีจากในรู)
+
+    f = 1.0
+    if N > _PM_MAX_TARGETS:
+        f = (_PM_MAX_TARGETS / float(N)) ** 0.5
+    if f < 1.0:
+        w2, h2 = max(16, int(W * f)), max(16, int(H * f))
+        g2 = cv2.resize(g_lp, (w2, h2), interpolation=cv2.INTER_AREA)
+        s2 = cv2.resize(s_lp, (w2, h2), interpolation=cv2.INTER_AREA)
+        hl2 = cv2.resize(hole.astype(np.uint8), (w2, h2), interpolation=cv2.INTER_NEAREST) > 0
+        hl2 = cv2.dilate(hl2.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        m = _patchmatch(g2, s2, hl2)
+        if m is None:
+            return None
+        ty2, tx2, sy2, sx2 = m
+        # ขยายคำตอบกลับขนาดจริง: ทุกพิกเซลใช้ "ระยะเลื่อน" ของจุดที่ใกล้ที่สุดที่คำนวณไว้
+        offy = np.zeros((h2, w2), np.float32)
+        offx = np.zeros((h2, w2), np.float32)
+        offy[ty2, tx2] = (sy2 - ty2) / f
+        offx[ty2, tx2] = (sx2 - tx2) / f
+        offy = cv2.resize(offy, (W, H), interpolation=cv2.INTER_NEAREST)
+        offx = cv2.resize(offx, (W, H), interpolation=cv2.INTER_NEAREST)
+        ty, tx = np.nonzero(hole)
+        sy = np.rint(ty + offy[ty, tx]).astype(np.int64)
+        sx = np.rint(tx + offx[ty, tx]).astype(np.int64)
+    else:
+        m = _patchmatch(g_lp, s_lp, hole)
+        if m is None:
+            return None
+        ty, tx, sy, sx = m
+
+    ok = (sy >= 0) & (sy < H) & (sx >= 0) & (sx < W)
+    ok[ok] = ~hole[sy[ok], sx[ok]]                   # ห้ามก๊อปจากในรูเอง
+    copy = l32.copy()
+    copy[ty[ok], tx[ok]] = o32[sy[ok], sx[ok]]
+
+    # รายละเอียด = ส่วนที่ "คม" ของแผ่นจริง (ของจริงลบเวอร์ชันเบลอของมันเอง)
+    detail = np.zeros_like(copy)
+    detail[ty[ok], tx[ok]] = (o32 - s_lp)[sy[ok], sx[ok]]
+    base = cv2.GaussianBlur(l32, (0, 0), sigma)
+    # แผ่นที่สีหลักต่างจาก LaMa มาก (ไปเจอเส้นขอบ/ตัวหนังสือ) ไม่เอารายละเอียดตรงนั้น
+    lp_copy = np.zeros_like(copy)
+    lp_copy[ty[ok], tx[ok]] = s_lp[sy[ok], sx[ok]]
+    far = np.abs(lp_copy - g_lp).max(axis=2) > 24
+    detail[far] = 0
+    out = np.clip(base + detail, 0, 255).astype(np.uint8)
+    res = lama.copy()
+    res[hole] = out[hole]
+    return res
+
+
 def inpaint(img_bgr, mask, pad_frac=0.6, min_pad=48, max_side=1280, feather=2.5):
     import cv2
     import numpy as np
@@ -188,7 +360,8 @@ def inpaint(img_bgr, mask, pad_frac=0.6, min_pad=48, max_side=1280, feather=2.5)
         m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
     if int(m.sum()) == 0:
         return img_bgr.copy(), 'noop'
-    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+    # ขยายขอบที่ระบายออกเล็กน้อย กันขอบวัตถุ/เงาเหลือเป็นคราบ (เหมือน Expand selection ก่อน Content-Aware Fill)
+    m = cv2.dilate(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)), iterations=1)
 
     ys, xs = np.where(m > 0)
     y0, y1, x0, x1 = int(ys.min()), int(ys.max()), int(xs.min()), int(xs.max())
@@ -222,7 +395,19 @@ def inpaint(img_bgr, mask, pad_frac=0.6, min_pad=48, max_side=1280, feather=2.5)
     if out_crop is None:
         out_crop = cv2.inpaint(crop, cmask, 5, cv2.INPAINT_NS)
 
-    out_crop = _match_grain(crop, out_crop, cmask)
+    sharp = None
+    if method == 'lama':
+        try:
+            t0 = time.time()
+            sharp = _texture_fill(crop, out_crop, cmask > 0)
+            log('texture fill %.1fs' % (time.time() - t0))
+        except Exception as e:
+            log('texture fill failed:', e)
+            sharp = None
+    if sharp is not None:
+        out_crop, method = sharp, 'lama+patch'
+    else:
+        out_crop = _match_grain(crop, out_crop, cmask)
     a = (cmask > 0).astype(np.float32)
     if feather > 0:
         a = cv2.GaussianBlur(a, (0, 0), feather)
@@ -335,7 +520,7 @@ def self_check():
     mask = np.zeros((96, 128), np.uint8)
     mask[28:62, 38:82] = 255
     out, method = inpaint(img, mask)
-    if method != 'lama':
+    if not method.startswith('lama'):
         raise SystemExit('LaMa ใช้ไม่ได้: ' + (_STATE['error'] or method))
     left = float(abs(out[30:60, 40:80].astype(int) - 180).mean())
     print('OK  LaMa พร้อมใช้ (ส่วนต่างหลังลบ %.1f)' % left)
@@ -351,9 +536,14 @@ def main():
     if '--check' in sys.argv:
         self_check()
         return
-    try:
-        srv = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
-    except OSError:
+    srv = None
+    for _ in range(20):          # ตอนติดตั้งทับ ตัวเก่าอาจยังปล่อยพอร์ตไม่ทัน รอสักครู่
+        try:
+            srv = ThreadingHTTPServer(('127.0.0.1', PORT), Handler)
+            break
+        except OSError:
+            time.sleep(0.5)
+    if srv is None:
         log('port %d busy — another helper is already running' % PORT)
         return
     srv.daemon_threads = True
